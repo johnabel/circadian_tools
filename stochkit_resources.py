@@ -872,7 +872,6 @@ def stochkit(model, job_id="",t=20,number_of_trajectories=10,increment=0.01,seed
     process = os.popen('mkdir -p ' + prefix_outdir);
     process.close()
     
-
     # Write a temporary StochKit2 input file.
     if isinstance(model,StochKitModel):
         outfile =  "temp_input_"+job_id+".xml"
@@ -906,6 +905,7 @@ def stochkit(model, job_id="",t=20,number_of_trajectories=10,increment=0.01,seed
     # Algorithm, SSA or Tau-leaping?
     executable = algorithm
     
+
     # Assemble the argument list
     args = ''
     args+='--model '
