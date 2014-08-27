@@ -3,57 +3,16 @@ import math
 import numpy as np
 
 from scipy import signal, interpolate, optimize, sparse
-from scipy.fftpack import rfft
 from scipy.sparse import dia_matrix, eye as speye
 from scipy.sparse.linalg import spsolve
-import matplotlib
-import decimal
-import pdb
-
 
 # import matplotlib.pylab as plt
 
 from matplotlib import mlab
 #from CommonFiles.Utilities import (color_range, format_number,
-         #                          round_sig)
+#                                   round_sig)
 
 import pywt
-
-def color_range(NUM_COLORS):
-    cm = matplotlib.cm.get_cmap('gist_rainbow')
-    return (cm(1.*i/NUM_COLORS) for i in range(NUM_COLORS))
-
-def format_number_single(num):
-    """ Formatting routine to provide a nice representation of a number,
-    removing unnecessary trailing zeros """
-
-    try:
-        dec = decimal.Decimal(num)
-    except:
-        return 'bad'
-    tup = dec.as_tuple()
-    delta = len(tup.digits) + tup.exponent
-    digits = ''.join(str(d) for d in tup.digits)
-    if delta <= 0:
-        zeros = abs(tup.exponent) - len(tup.digits)
-        val = '0.' + ('0'*zeros) + digits
-    else:
-        val = digits[:delta] + ('0'*tup.exponent) + '.' + digits[delta:]
-    val = val.rstrip('0')
-    if val[-1] == '.':
-        val = val[:-1]
-    if tup.sign:
-        return '-' + val
-    return val
-
-
-def round_sig_single(x, sig=2):
-    """ Round a number (matrix) to the specified number of significant
-    digits """
-    return str(round(x, sig-int(math.floor(math.log10(x)))-1))
-
-round_sig = np.vectorize(round_sig_single, otypes=[str,])
-format_number = np.vectorize(format_number_single, otypes=[str,])
 
 
 class Bioluminescence(object):
@@ -61,7 +20,7 @@ class Bioluminescence(object):
     population level rhythms. Includes algorithms for smoothing,
     detrending, and curve fitting. """
 
-    def __init__(self, x, y):
+    def __init__(self, x, y, period_guess=None):
         """ x, y should contain time and expression level, respectively,
         of a circadian oscillation """
 
@@ -71,7 +30,15 @@ class Bioluminescence(object):
         self.xvals = {'raw' : x}
         self.yvals = {'raw' : y}
 
-        self.period = estimate_period(x, y)
+        if not period_guess:
+            period_low  = period_guess/2. if period_guess else 1
+            period_high = period_guess*2. if period_guess else 100
+            self.period = estimate_period(x, y, period_low=period_low,
+                                          period_high=period_high)
+        else:
+            # Until scipy fixes their periodogram issues
+            self.period = period_guess
+
         self.even_resample(res=len(x))
     
 
@@ -82,11 +49,25 @@ class Bioluminescence(object):
         self.yvals['even'] = self.y
 
 
-    def detrend(self, a=0.05):
+    def _exp_detrend(self):
+        """ Some bioluminescence profiles have mean dynamics
+        well-described by an exponentially decaying sinusoid. """
+
+        a,d = fit_exponential(self.x, self.y)
+        mean = a*np.exp(self.x*d)
+        self.y = self.y - mean
+
+        self.yvals['detrended'] = self.y
+        self.yvals['mean'] = mean
+
+
+    def detrend(self, a=0.05, detrend_period=None):
         """ Detrend the data """
 
+        if detrend_period is None: detrend_period = self.period
+
         self.x, self.y, mean = detrend(self.x, self.y,
-                                       est_period=self.period,
+                                       est_period=detrend_period,
                                        ret='both', a=a)
 
         self.yvals['detrended'] = self.y
@@ -101,11 +82,21 @@ class Bioluminescence(object):
         self.yvals['filt'] = self.y
 
 
-    def fit_sinusoid(self, t_trans=0., weights=1):
+    def estimate_sinusoid_pars(self, t_trans=0.):
+        """ Estimate decaying sinusoid parameters without fitting """
+
+        self.start_ind = start_ind = self._ind_from_x(t_trans)
+        return estimate_sinusoid_pars(self.x[start_ind:],
+                                      self.y[start_ind:])
+
+    def _ind_from_x(self, x):
+        return ((self.x - x)**2).argmin()
+
+    def fit_sinusoid(self, t_trans=0., weights=None):
         """ Fit a decaying sinusoid, ignoring the part of the signal
         with x less than t_trans """
 
-        start_ind = ((self.x - t_trans)**2).argmin()
+        self.start_ind = start_ind = ((self.x - t_trans)**2).argmin()
 
         pars, conf = fit_decaying_sinusoid(self.x[start_ind:],
                                            self.y[start_ind:],
@@ -117,6 +108,15 @@ class Bioluminescence(object):
         self.yvals['model'] = decaying_sinusoid(self.x,
                                                 *_pars_to_plist(pars))
 
+    def pseudo_r2(self):
+        """Calculates the pseudo-r2 value for the fitted sinusoid."""
+        y_reg = self.yvals['model'][self.start_ind:]
+        y_dat = self.y[self.start_ind:]
+            
+        SSres = ((y_dat - y_reg)**2).sum()
+        SStot = ((y_dat - y_dat.mean())**2).sum()
+        return 1 - SSres/SStot
+
     def amplify_decay(self, amp=None, decay=None):
         """ Function to amplify the tail end of a trace by removing the
         estimated exponential decay. Amplitude and decay parameters, if
@@ -125,7 +125,8 @@ class Bioluminescence(object):
         if decay is None: decay = self.sinusoid_pars['decay']
         if amp is None: amp = self.sinusoid_pars['amplitude']
 
-        exp_traj = amp*np.exp(-decay * self.x)
+        # Decay in units of radians
+        exp_traj = amp*np.exp(-decay * 2*np.pi*self.x/self.period)
         
         # Normalize by first value
         # exp_traj *= 1./exp_traj[0]
@@ -147,12 +148,12 @@ class Bioluminescence(object):
 
         # Sample the interval with a number of samples = 2**n
         
+
         if best_res is None:
             curr_res = len(self.x)
             curr_pow = int(np.log(curr_res)/np.log(2))
-            
-            def bins(curr_res):
 
+            def bins(curr_res):
                 curr_pow = int(np.log(curr_res)/np.log(2))
                 dx = (self.x[-1] - self.x[0])/(curr_res - 1)
                 period_bins = np.array([(2**j*dx, 2**(j+1)*dx) for j in
@@ -166,13 +167,14 @@ class Bioluminescence(object):
 
             best_res = optimize.fminbound(bins, 2**(curr_pow-1),
                                           2**(curr_pow+1))
-                                          
+
         self.even_resample(res=int(best_res))
 
         # self.even_resample(res=2**(curr_pow))
 
         out = dwt_breakdown(self.x, self.y, wavelet=wavelet,
                             nbins=np.inf, mode=mode)
+
         period_bins = np.array(out['period_bins'])
         self.dwt_bins = len(period_bins)
 
@@ -218,7 +220,8 @@ class Bioluminescence(object):
 
 
 
-    def plot_dwt_components(self, ax, space=1.0, bins=None, baselines=None):
+    def plot_dwt_components(self, ax, space=1.0, bins=None,
+                            baselines=None):
         """ Plot the decomposition from the dwt on the same set of axes,
         similar to figure 4 in DOI:10.1177/0748730411416330. space is
         relative spacing to leave between each component, bins is a
@@ -262,50 +265,33 @@ class Bioluminescence(object):
         for comp, color in zip(components, color_range(self.dwt_bins)):
             ax.plot(self.x, comp, color=color)
 
-        
+        return ax
 
-    def power_in_bin(self):
-        """Determines the relative fraction of power in a given 
-        bin. Often used to determine amount of circadian rhythmicity.
-		
-		
-		Try subtracting a straight line's power to remove the tail in each
-		bin? right now it is simply looking at the lower set of bins to 
-		find a period, but this isn't rigorous really. Max period observed
-		is 60.
-		
-		"""
-        
-        red = self.dwt
-        components = red['components']
-        nbins = self.dwt_bins
-        power_bins = np.zeros(nbins)
-        
-        for i in xrange(nbins):
-            
-            power_bins[i] = sum((np.abs(components[i]))**2)
-        
-        self.power_bins = power_bins
+    def hilbert_envelope(self, y=None):
+        """ Calculate the envelope of the function (amplitude vs time)
+        using the analytical signal generated through a hilbert
+        transform """
+
+        if y is None: y = self.y
+        return abs(signal.hilbert(y))
 
     
+    def fit_hilbert_envelope(self, t_start=None, t_end=None):
+        """ Fit an exponential function to the hilbert envelope. Due to
+        ringing at the edges, it is a good idea to cut some time from
+        the start and end of the sinusoid (defaults to half a period at
+        each edge) """
 
-                             
+        if t_start is None: t_start = self.period/2
+        if t_end is None: t_end = self.period/2
 
+        start = self._ind_from_x(t_start)
+        end = self._ind_from_x(t_end)
 
+        envelope = self.hilbert_envelope()[start:end]
+        amplitude, decay = fit_exponential(self.x[start:end], envelope)
 
-
-
-
-
-
-        
-
-            
-        
-        
-
-
-
+        return amplitude, -decay*self.period/(2*np.pi) # (1/rad)
 
 
 
@@ -328,7 +314,7 @@ def bandpass_filter(x, y, low=10, high=40., order=5):
     return x, y_filt
 
 
-def lowpass_filter(x, y, cutoff_period=15., order=5):
+def lowpass_filter(x, y, cutoff_period=5., order=5):
     """ Filter the data with a lowpass filter, removing noise with a
     critical frequency corresponding to the number of hours specified by
     cutoff_period. Assumes a period of 24h, with data in x in the units
@@ -339,7 +325,7 @@ def lowpass_filter(x, y, cutoff_period=15., order=5):
     nyquist = (x[1] - x[0])/2.
     cutoff_freq = 1/((cutoff_period/(x.max() - x.min()))*len(x))
 
-    b, a = signal.butter(5, cutoff_freq/nyquist)
+    b, a = signal.butter(order, cutoff_freq/nyquist)
     y_filt = signal.filtfilt(b, a, y)
 
     return x, y_filt
@@ -369,7 +355,7 @@ def even_resample(x, y, res=None, s=None, meth='linear'):
     return x_even, y_even
 
 
-def detrend(x, y, est_period=23.7, ret="detrended", a=0.05):
+def detrend(x, y, est_period=24., ret="detrended", a=0.05):
     """ Detrend the data using a hodrick-prescott filter. If ret ==
     "mean", return the detrended mean of the oscillation. Estimated
     period and 'a' parameter are responsible for determining the optimum
@@ -396,7 +382,7 @@ def detrend(x, y, est_period=23.7, ret="detrended", a=0.05):
 
 def hpfilter(X, lamb):
     """ Code to implement a Hodrick-Prescott with smoothing parameter
-    lambda. Code taken from statsmodels python package (easier thand
+    lambda. Code taken from statsmodels python package (easier than
     importing/installing, https://github.com/statsmodels/statsmodels """
 
     X = np.asarray(X, float)
@@ -414,7 +400,7 @@ def hpfilter(X, lamb):
 
 
 
-def periodogram(x, y, period_low=1, period_high=55, res=200):
+def periodogram(x, y, period_low=1, period_high=35, res=200):
     """ calculate the periodogram at the specified frequencies, return
     periods, pgram """
     
@@ -422,12 +408,16 @@ def periodogram(x, y, period_low=1, period_high=55, res=200):
     # periods = np.logspace(np.log10(period_low), np.log10(period_high),
     #                       res)
     freqs = 2*np.pi/periods
-    return periods, signal.lombscargle(x, y, freqs)
+    try: pgram = signal.lombscargle(x, y, freqs)
+    # Scipy bug, will be fixed in 1.5.0
+    except ZeroDivisionError: pgram = signal.lombscargle(x+1, y, freqs)
+    return periods, pgram
 
 
 def estimate_period(x, y, period_low=1, period_high=100, res=200):
     """ Find the most likely period using a periodogram """
-    periods, pgram = periodogram(x, y)
+    periods, pgram = periodogram(x, y, period_low=period_low,
+                                 period_high=period_high, res=res)
     return periods[pgram.argmax()]
 
 
@@ -470,28 +460,33 @@ def estimate_sinusoid_pars(x, y):
     phase, and amplitude of the signal in y to prepare for curve fitting
     """
 
+    hilbert = signal.hilbert(y)
+
     # Estimate exponential decay
-    # Get locations of extrema
-    inds = np.where(np.diff(np.sign(np.diff(y))))[0] + 1
-    y_extreme = np.abs(y[inds])
-    x_extreme = x[inds]
+    envelope = abs(hilbert)
+    amplitude, decay = fit_exponential(x, envelope)
 
-    a, b = fit_exponential(x_extreme, y_extreme)
+       
+    # Fit line to phase vs time:
+    phases = np.unwrap(np.angle(hilbert))
+    weights = envelope*tukeywin(len(x), 0.5) # Prioritize high-amplitude
+    slope, intercept = np.polyfit(x, phases, 1, w=weights)
+    period = (2*np.pi/slope)
+    phase = intercept%(2*np.pi)
+
+    # # Estimate period, phase, and amp using fourier methods
+    # Y = np.fft.fft(y)
+    # n = len(Y)
+    # freqs = np.fft.fftfreq(n, d=x[1] - x[0])
+    # Y = Y[1:(n/2)]
+    # freqs = freqs[1:(n/2)]
+    # ind = np.abs(Y).argmax()
     
-
-    # Estimate period, phase, and amp using fourier methods
-    Y = np.fft.fft(y)
-    n = len(Y)
-    freqs = np.fft.fftfreq(n, d=x[1] - x[0])
-    Y = Y[1:(n/2)]
-    freqs = freqs[1:(n/2)]
-    ind = np.abs(Y).argmax()
     pars = {
-        'period'    : 1/freqs[ind],
-        'phase'     : np.angle(Y)[ind],
-        # 'amplitude' : np.abs(Y[ind])/(n/2),
-        'amplitude' : a,
-        'decay'     : b,
+        'period'    : period,
+        'phase'     : phase,
+        'amplitude' : amplitude,
+        'decay'     : -decay*period/(2*np.pi) # (1/rad)
     }
 
     return pars
@@ -501,7 +496,7 @@ def decaying_sinusoid(x, amplitude, period, phase, decay):
     """ Function to generate the y values for a fitted decaying sinusoid
     specified by the dictionary 'pars' """
     return (amplitude * np.cos((2*np.pi/period)*x + phase) *
-            np.exp(-decay*x))
+            np.exp(2*np.pi*decay*x/period))
 
 def _pars_to_plist(pars):
     pars_list = ['amplitude', 'period', 'phase', 'decay']
@@ -519,8 +514,7 @@ def fit_decaying_sinusoid(x, y, weights=None):
 
     p0 = _pars_to_plist(estimate_sinusoid_pars(x, y))
     if weights is None: weights = 1/np.exp(-p0[-1]*x)
-    if weights is 1: weights = np.ones(len(x))
-    if weights is 2: weights = 1/(np.exp(-p0[-1]*x)+0.1)
+    if weights is 'capped': weights = 0.1 + 1/np.exp(-p0[-1]*x)
 
     popt, pcov = optimize.curve_fit(decaying_sinusoid, x, y, p0=p0,
                                     sigma=weights, maxfev=5000)
@@ -534,15 +528,19 @@ def fit_decaying_sinusoid(x, y, weights=None):
         popt[2] += np.pi
     popt[2] = popt[2]%(2*np.pi)
 
-    pars = _plist_to_pars(popt)
+    if popt[0] < 0:
+        popt[0] = abs(popt[0])
+        popt[2] += np.pi
+    popt[2] = popt[2]%(2*np.pi)
     pars_confidence = _plist_to_pars(relative_confidence)
+    pars = _plist_to_pars(popt)
 
     return pars, pars_confidence
 
 
-def continuous_wavelet_transform(x, y, shortestperiod=10,
-                                 longestperiod=40, nvoice=512, ga=3,
-                                 be=7, opt_b='exp_sin', opt_m='ban',pernum=5):
+def continuous_wavelet_transform(x, y, shortestperiod=20,
+                                 longestperiod=30, nvoice=512, ga=3,
+                                 be=7, opt_b='exp_sin', opt_m='ban'):
     """ Call lower level functions to generate the cwt of the data in x
     and y, according to various parameters. Will resample the data to
     ensure efficient fft's if need be """
@@ -557,7 +555,7 @@ def continuous_wavelet_transform(x, y, shortestperiod=10,
     fs, tau, qscaleArray = calculate_widths(x, shortestperiod,
                                             longestperiod, nvoice)
 
-    wt = cwt(y, fs, ga, be, opt_b, opt_m,pernum)
+    wt = cwt(y, fs, ga, be, opt_b, opt_m)
 
     cwt_abs = np.abs(wt)
     cwt_scale = cwt_abs/cwt_abs.sum(0)
@@ -615,7 +613,7 @@ def calculate_widths(x, shortestperiod=20., longestperiod=30.,
     return fs[valid_inds], tau[valid_inds], qscaleArray[valid_inds]
 
 
-def cwt(y, fs, ga=3, be=7, opt_b='exp_sin', opt_m='ban',pernum=2,bdetrend=0):
+def cwt(y, fs, ga=3, be=7, opt_b='exp_sin', opt_m='ban'):
     """
     Calculate the continuous wavelet transform using generalized morse
     wavelets. 
@@ -637,10 +635,11 @@ def cwt(y, fs, ga=3, be=7, opt_b='exp_sin', opt_m='ban',pernum=2,bdetrend=0):
     cwt    : Continuous wavelet transform
     """
 
+    bdetrend = 1
     # fam = 'first'
     # dom = 'frequency'
 
-    x, index = timeseries_boundary(y, opt_b, bdetrend,pernum)
+    x, index = timeseries_boundary(y, opt_b, bdetrend)
 
     M = len(x)
     # N = len(fs)
@@ -713,7 +712,7 @@ def cwt(y, fs, ga=3, be=7, opt_b='exp_sin', opt_m='ban',pernum=2,bdetrend=0):
     
     return T.T
 
-def timeseries_boundary(x, opt_b, bdetrend,pernum=2):
+def timeseries_boundary(x, opt_b, bdetrend):
     """ TIMESERIES_BOUNDARY applies periodic, zero-padded, or mirror
     boundary conditions to a time series. """
 
@@ -743,8 +742,8 @@ def timeseries_boundary(x, opt_b, bdetrend,pernum=2):
         period = estimate_period(t, x)
         
         # Get last two periods of x and y
-        ind_end   = np.abs(t - (t[-1] - pernum*period)).argmin()
-        ind_start = np.abs(t - (pernum*period)).argmin()
+        ind_end   = np.abs(t - (t[-1] - 2*period)).argmin()
+        ind_start = np.abs(t - (2*period)).argmin()
         t_end   = t[ind_end:]
         x_end   = x[ind_end:]
         t_start = t[:ind_start]
@@ -869,6 +868,7 @@ def calculate_widths_old(x, shortestperiod=20., longestperiod=30.,
 def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
     """ Function to break down the data in y into multiple frequency
     components using the discrete wavelet transform """
+
     lenx = len(x)
 
     # Restrict to the maximum allowable number of bins
@@ -916,7 +916,47 @@ def fit_limitcycle_sinusoid(y):
     return popt
 
 
-
+def tukeywin(window_length, alpha=0.5):
+    '''The Tukey window, also known as the tapered cosine window, can be
+    regarded as a cosine lobe of width \alpha * N / 2 that is convolved
+    with a rectangle window of width (1 - \alpha / 2). At \alpha = 1 it
+    becomes rectangular, and at \alpha = 0 it becomes a Hann window.
+ 
+    We use the same reference as MATLAB to provide the same results in
+    case users compare a MATLAB output to this function output
+ 
+    Reference
+    ---------
+ 
+    http://www.mathworks.com/access/helpdesk/help/toolbox/signal/
+    tukeywin.html
+ 
+    '''
+    # Special cases
+    if alpha <= 0:
+        return np.ones(window_length) #rectangular window
+    elif alpha >= 1:
+        return np.hanning(window_length)
+ 
+    # Normal case
+    x = np.linspace(0, 1, window_length)
+    w = np.ones(x.shape)
+ 
+    # first condition 0 <= x < alpha/2
+    first_condition = x<alpha/2
+    w[first_condition] = 0.5 * (1 + np.cos(2*np.pi/alpha *
+                                           (x[first_condition] -
+                                            alpha/2) ))
+ 
+    # second condition already taken care of
+ 
+    # third condition 1 - alpha / 2 <= x <= 1
+    third_condition = x>=(1 - alpha/2)
+    w[third_condition] = 0.5 * (1 + np.cos(2*np.pi/alpha *
+                                           (x[third_condition] - 1 +
+                                            alpha/2))) 
+ 
+    return w
     
 
 

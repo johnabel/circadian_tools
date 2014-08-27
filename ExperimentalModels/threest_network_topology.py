@@ -20,13 +20,13 @@ EqCount = 3
 ParamCount = 13
 modelversion='state3'
 
-cellcount=4
+cellcount=649
 
 period = 23.7000
 
 vol=50
 
-randomy0 = False
+randomy0 = True
 
 y0in=np.array([2.1, 0.34, 0.42])
         
