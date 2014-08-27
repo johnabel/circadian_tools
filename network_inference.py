@@ -7,7 +7,6 @@ Network inference module for circadian systems.
 """
 
 from __future__ import division
-import time
 import itertools
 import numpy  as np
 import scipy as scp
@@ -24,29 +23,55 @@ import pdb
 
 class network(object):
     """
-    Class to analyze time series data and infer networks.    
+    Class to analyze time series data and infer network connections.    
     JH Abel    
     """
 
-    def __init__(self,xs,t=None):
+    def __init__(self, xs, sph=None, t=None):
         """xs should contain multiple time series for analysis.
         t is an optional series of time points"""
+        self.sph = {'raw' : sph}
         if t is not None:
             self.t = t
-        self.xs = xs
-        
+            self.sph = 1/(t[1]-t[0])
+        self.xs = {'raw' : xs}
         self.nodecount = len(xs[0,:])
+    
+    def resample(self,des,sph):
+        """des is desired samples/hour, sph is xs samples/hour"""
+        self.sph['resample'] = des
+        #xs_pre_fix = np.copy(self.xs)
+        xs_resample = np.zeros([np.floor(des*len(self.xs)/sph),
+                                self.nodecount])
+        for i in range(len(xs_resample)):
+            xs_resample[i,:] = np.sum(self.xs[
+                    int(i*sph/des):int((1+i)*sph/des),:],axis=0)
         
-    def mutual_info(self):
+        self.xs['resample'] = xs_resample
+    
+    def mutual_info(self,use_sph='raw'):
         """calculates mutual information between nodes.
         does not rely on scoop"""
         
-        for i in xrange(self.nodecount):
-            for j in xrange(self.nodecount):
-                
-                # set up time series, infer
-                x1
-
+        mutinfo = np.zeros([self.nodecount,self.nodecount])
+        
+        sph = self.sph[use_sph]
+        max_lag = 6*sph
+        noverlap = 26*sph
+        window = 30*sph
+        
+        c1 = range(self.nodecount)
+        c2 = range(self.nodecount)
+        for i in c1:
+            x1 = self.xs[:,i]
+            for j in c2:
+                x2 = self.xs[:,j]
+                mutinfo[i,j] = mutual_information(x1, x2, max_lag,
+                                                    noverlap, window = window)
+        if self.mi is None:
+            #initialize mi dict
+            self.mi = {use_sph : mutinfo}
+        else: self.mi['use_sph'] = mutinfo
 
     def scoop_mutual_info(self):
         """calculates mutual information between nodes.
@@ -56,9 +81,25 @@ class network(object):
         inds = list(itertools.product(*aa))
         self.mutualinfo = scoop_mi(inds)[:,:3]
         
+    def MIC(self):
+        pass
+    
+    def scoop_MIC(self):
+        pass
+    
+    def pearson_r2(self):
+        pass
+    
+    def create_adjacency(self, method='def', thresh=0.90):
+        """method def allows you to define an adjacency matrix, method mic 
+        allows you to generate one from mic, method mi allows you to generate
+        one from mi, r2 from r2."""
+        pass
 
-
-
+    def simulate_from_adjacency(self, model='SDS', adj='def'):
+        """allows you to simulate the network from a certain adjacency
+        matrix and a given model"""
+        pass
 
 
 
@@ -183,7 +224,7 @@ def MIcalc(x,y,nbins=10):
         Z[i] = MI
     return Z
 
-def scoop_mi(inds):
+def scoop_mi(inds, ts_data, max_lag, noverlap, window):
     """
     exists so you can call mutual information with a list of indicies,
     and ultimately parallelize the calculation
@@ -204,4 +245,60 @@ def scoop_mi(inds):
     john = np.max(np.mean(C,axis=1))
     return [c1, c2, kirstenIm, john]
     
+
+def generate_trajectories(adjacency,tf=10,inc=0.05):
+    pass
+
+def ROC(adj, infer, cellcount, ints = 1000):
+    """
+    Compares adj, the connectivity matrix, to infer, the inferred mutual info
+    matrix, to determine the ROC curve. Default of cutoff range from 0 to 1, 
+    1000 intervals.
     
+    Returns: 
+        false positive rate, sensitivity, false negative rate, specificity 
+    """
+    
+    if np.shape(adj) != np.shape(infer):
+        print 'ERROR: Shapes of adjacency matrices do not match.'
+        return
+    
+    TP = (adj == 1).sum()
+    TN = (adj == 0).sum()
+    cellcount = len(adj)
+    
+    roc = np.zeros([ints+1,5])
+    for i in xrange(len(roc)):
+        criteria = i/(len(roc)-1)
+        tp = 0
+        fp = 0
+        tn = 0
+        fn = 0
+        
+        active = np.floor(infer+criteria)
+        
+        for c1 in xrange(cellcount):
+            for c2 in xrange(cellcount):
+                if c1==c2:
+                    pass
+                else:                    
+                    if adj[c1,c2]==0:
+                        if active[c1,c2]==0:
+                            tn = tn+1
+                        else:
+                            fp = fp+1
+                    else:
+                        if active[c1,c2]>=1:
+                            tp = tp+1
+                        else:
+                            fn = fn+1
+        
+        fpr = fp/TN #false positive rate (fall-out)
+        tpr = tp/TP #true positive rate (sensitivity)
+        fnr = fn/TP #false negative rate 
+        tnr = tn/TN #true negative rate (specificity)
+        
+        
+        roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
+    return roc
+   
