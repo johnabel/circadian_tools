@@ -70,7 +70,7 @@ def PlotOptions(uselatex=False):
             
     if uselatex:
         matplotlib.rc('text', usetex=True)
-        matplotlib.rc('font', family='serif')
+        matplotlib.rc('font', family='sans-serif')
         
 
 # Padding for formatting figures using tight_layout

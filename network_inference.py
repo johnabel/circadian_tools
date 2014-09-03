@@ -263,7 +263,7 @@ def ROC(adj, infer, cellcount, ints = 1000):
         print 'ERROR: Shapes of adjacency matrices do not match.'
         return
     
-    TP = (adj == 1).sum()
+    TP = (adj != 0).sum()
     TN = (adj == 0).sum()
     cellcount = len(adj)
     

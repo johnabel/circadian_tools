@@ -20,13 +20,13 @@ EqCount = 3
 ParamCount = 13
 modelversion='state3'
 
-cellcount=649
+cellcount=191
 
 period = 23.7000
 
 vol=50
 
-randomy0 = True
+randomy0 = False
 
 y0in=np.array([2.1, 0.34, 0.42])
         
@@ -116,8 +116,7 @@ def ODEmodel():
     #==================================================================
     # Stochastic Model Portion
     #==================================================================
-    
-def SSAnetwork(fn,y0in,param,adjacency):
+def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -132,8 +131,105 @@ def SSAnetwork(fn,y0in,param,adjacency):
     #makes copies of the names so that they are on record
     species_array = []
     state_names=[]
-    if randomy0==False:
-        y0in_pop = []
+    y0in_pop = []
+    
+    np.fill_diagonal(adjacency,1)
+
+    #coupling section===========================
+    for indx in range(cellcount):
+        index = '_'+str(indx)+'_0'
+        #loops to include all species, normally this is the only line needed without index
+        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+                        for i in xrange(EqCount)]
+        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+                        for i in xrange(EqCount)]                 
+        y0in_pop = np.append(y0in_pop, y0in_ssa)       
+
+    #===========================================
+            
+    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+                    for i in xrange(ParamCount)]
+    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+                    for i in xrange(ParamCount)]
+    #Names model
+    SSAmodel = stk.StochKitModel(name=modelversion)
+    
+    #creates SSAmodel class object
+    SSA_builder = mb.SSA_builder(species_array,param_array,y0in_pop,param,SSAmodel,vol)
+    
+
+    #coupling section
+    for indx in range(cellcount):
+            
+        index = '_'+str(indx)+'_0'
+        
+        #Coupled terms - - -------------------------------------------------
+        #loops for all cells accumulating their input
+        avg = '0'
+        mcount = 0
+        for fromcell in range(cellcount):
+            if adjacency[fromcell,indx]!= 0:
+                #The Coupling Part
+                mcount = mcount+1
+                avg = avg+'+M_'+str(fromcell)+'_0'
+
+        
+        weight = 1.0/mcount
+        #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
+        if (str(SSA_builder.pvaldict['vs0']) ==
+                        SSA_builder.SSAmodel.listOfParameters['vs0'].expression):
+                SSA_builder.SSAmodel.setParameter('vs0',
+                                SSA_builder.SSAmodel.listOfParameters['vs0'].expression+'*('+str(SSA_builder.vol)+')')
+        if (str(SSA_builder.pvaldict['k1']) ==
+                        SSA_builder.SSAmodel.listOfParameters['k1'].expression):
+                SSA_builder.SSAmodel.setParameter('k1',
+                                SSA_builder.SSAmodel.listOfParameters['k1'].expression+'*('+str(SSA_builder.vol)+')')
+        
+        if (str(SSA_builder.pvaldict['alocal']) ==
+                        SSA_builder.SSAmodel.listOfParameters['alocal'].expression):
+                SSA_builder.SSAmodel.setParameter('alocal',
+                                SSA_builder.SSAmodel.listOfParameters['alocal'].expression+'*('+str(SSA_builder.vol)+')')
+        #####
+        #Adds reaction
+        rxn=stk.Reaction(name='Cell'+str(indx)+'_Reaction0',
+                         reactants={},
+                        products={'M_'+str(indx)+'_0':1},
+                        propensity_function=('std::max(0.0,(vs0+alocal*(('+avg+')*'
+                                    +str(weight)+'-M_'+str(indx)+'_0)))'+ 
+                                    '*pow(k1,n)/(pow(k1,n)+pow(Pn_'+str(indx)+'_0,n))'),annotation='')#
+   
+        SSAmodel.addReaction(rxn)
+        #-------------------------------------------------------------------
+        
+        # REACTIONS
+        SSA_builder.SSA_MM('Cell'+str(indx)+'_Reaction1','vm',
+                           km=['km'],Rct=['M'+index])
+        
+        SSA_builder.SSA_MA_tln('Cell'+str(indx)+'_Reaction2', 'Pc'+index,
+                               'ks','M'+index)
+        
+        SSA_builder.SSA_MM('Cell'+str(indx)+'_Reaction3','vd',
+                           km=['kd'],Rct=['Pc'+index])
+        
+        #The complexing four:
+        SSA_builder.SSA_MA_cytonuc('Cell'+str(indx)+'_Reaction4','Pc'+index,
+                                   'Pn'+index,'k1_','k2_')
+        
+
+    return SSAmodel,state_names,param_names
+    
+def ssa_resync(fn,y0in_desync,param,adjacency):
+    """
+    This is the network-level SSA model, with coupling. Call with:
+        SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
+    
+    To uncouple the model, set adjacency matrix to zeros    
+    """
+    
+    #collects state and parameter array to be converted to species and parameter objects,
+    #makes copies of the names so that they are on record
+    species_array = []
+    state_names=[]
     
 
     #coupling section===========================
@@ -143,15 +239,9 @@ def SSAnetwork(fn,y0in,param,adjacency):
         species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
                         for i in xrange(EqCount)]
         state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
-                        for i in xrange(EqCount)]  
-        if randomy0==False:                
-            y0in_pop = np.append(y0in_pop, y0in_ssa)       
-                
-    if randomy0 == True:
-        #random initial locations
-        y0in_pop = 1*np.ones(EqCount*cellcount)
-        for i in range(len(y0in_pop)):
-            y0in_pop[i] = vol*4*random.random()
+                        for i in xrange(EqCount)]       
+    
+    y0in_pop = y0in_desync
 
     #===========================================
             

@@ -23,7 +23,7 @@ period = 23.7000
 
 vol=440
 
-randomy0 = True
+randomy0 = False
 
 #better for stoch
 y0in=np.array([ 0.27639502,  1.49578759,  0.23951501,  0.10907372,  0.00704751,
@@ -170,8 +170,7 @@ def ODEmodel():
     #==================================================================
     # Stochastic Model Portion
     #==================================================================
-    
-def SSAnetwork(fn,y0in,param,adjacency):
+def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -186,8 +185,110 @@ def SSAnetwork(fn,y0in,param,adjacency):
     #makes copies of the names so that they are on record
     species_array = []
     state_names=[]
-    if randomy0==False:
-        y0in_pop = []
+    y0in_pop = []
+    
+
+    #coupling section===========================
+    for indx in range(cellcount):
+        index = '_'+str(indx)+'_0'
+        #loops to include all species, normally this is the only line needed without index
+        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+                        for i in xrange(EqCount)]
+        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+                        for i in xrange(EqCount)]  
+           
+        y0in_pop = np.append(y0in_pop, y0in_ssa)       
+                
+
+
+    #===========================================
+            
+    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+                    for i in xrange(ParamCount)]
+    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+                    for i in xrange(ParamCount)]
+    #Names model
+    SSAmodel = stk.StochKitModel(name=modelversion)
+    
+    #creates SSAmodel class object
+    SSA_builder = mb.SSA_builder(species_array,param_array,y0in_pop,param,SSAmodel,vol)
+    
+
+    #coupling section
+    for indx in range(cellcount):
+            
+        index = '_'+str(indx)+'_0'
+        
+        
+        
+        # REACTIONS
+        #per mRNA
+
+        SSA_builder.SSA_PR16f('per mRNA activation'+index,'p'+index,'CREB'+index
+                            ,'C1P'+index,'C2P'+index,'vtpr','vtpp','knpr')
+        SSA_builder.SSA_MM('per mRNA degradation'+index,'vdp',km=['kdp'],Rct=['p'+index])
+
+
+        #cry1 mRNA
+        SSA_builder.SSA_MM('c1 mRNA repression'+index,'vtc1r',km=['kncr'],Prod=['c1'+index],Rep=['C1P'+index,'C2P'+index])
+        SSA_builder.SSA_MM('c1 mRNA degradation'+index,'vdc1',km=['kdc'],Rct=['c1'+index])
+        
+        #cry2 mRNA
+        SSA_builder.SSA_MM('c2 mRNA repression'+index,'vtc2r',km=['kncr'],Prod=['c2'+index],Rep=['C1P'+index,'C2P'+index])
+        SSA_builder.SSA_MM('c2 mRNA degradation'+index,'vdc2',km=['kdc'],Rct=['c2'+index])
+        
+        #vip mRNA
+        SSA_builder.SSA_MM('vip mRNA repression'+index,'vtvr',km=['knvr'],Prod=['vip'+index],Rep=['C1P'+index,'C2P'+index])
+        SSA_builder.SSA_MM('vip mRNA degradation'+index,'vdv',km=['kdv'],Rct=['vip'+index])
+        
+        #CRY1, CRY2, PER, VIP creation and degradation
+        SSA_builder.SSA_MA_tln('PER translation' +index,'P' +index  ,'ktlnp','p'+index)
+        SSA_builder.SSA_MA_tln('CRY1 translation'+index,'C1'+index  ,'ktlnc','c1'+index)
+        SSA_builder.SSA_MA_tln('CRY2 translation'+index,'C2'+index  ,'ktlnc','c2'+index)
+        
+        SSA_builder.SSA_MM('PER degradation'+index,'vdP',km=['kdP'],Rct=['P'+index])
+        SSA_builder.SSA_MM('C1 degradation'+index,'vdC1',km=['kdC'],Rct=['C1'+index])
+        SSA_builder.SSA_MM('C2 degradation'+index,'vdC2',km=['kdC'],Rct=['C2'+index])
+        SSA_builder.SSA_MA_deg('eVIP degradation'+index,'eVIP'+index,'kdVIP')
+        
+        #CRY1 CRY2 complexing
+        SSA_builder.SSA_MA_complex('CRY1-P complex'+index,'C1'+index,'P'+index,'C1P'+index,'vaCP','vdCP')
+        SSA_builder.SSA_MA_complex('CRY2-P complex'+index,'C2'+index,'P'+index,'C2P'+index,'vaCP','vdCP')
+        SSA_builder.SSA_MM('C1P degradation'+index,'vdC1n',km=['kdCn'],Rct=['C1P'+index,'C2P'+index])
+        SSA_builder.SSA_MM('C2P degradation'+index,'vdC2n',km=['kdCn'],Rct=['C2P'+index,'C1P'+index])
+        
+        #VIP/CREB Pathway
+        SSA_builder.SSA_MM('CREB formation'+index,'vgpka',km=['kgpka'],Prod=['CREB'+index],Act=['eVIP'+index])
+        SSA_builder.SSA_MM('CREB degradation'+index,'vdCREB',km=['kdCREB'],Rct=['CREB'+index])
+           
+    for currentcell in range(cellcount):
+        for affectedcell in range(cellcount):
+            if adjacency[currentcell,affectedcell]!= 0:
+                #The Coupling Part
+                rxn=stk.Reaction(name='vip from '+str(currentcell)+' to '+str(affectedcell),
+                                products={'eVIP_'+str(affectedcell)+'_0':1},
+                                propensity_function='vip_'+str(currentcell)+"_0*"+'ktlnv'+'*' +str(adjacency[currentcell,affectedcell]),
+                                annotation='')    
+                SSAmodel.addReaction(rxn)
+        
+    return SSAmodel,state_names,param_names
+    
+def ssa_resync(fn,y0in_desync,param,adjacency):
+    """
+    This is the network-level SSA model, with coupling. Call with:
+        SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
+    
+    To uncouple the model, set adjacency matrix to zeros    
+    """
+    
+    #Converts concentration to population
+    y0in_ssa = (vol*y0in).astype(int)
+    
+    #collects state and parameter array to be converted to species and parameter objects,
+    #makes copies of the names so that they are on record
+    species_array = []
+    state_names=[]
+    y0in_pop = y0in_desync
     
 
     #coupling section===========================
