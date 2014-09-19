@@ -21,7 +21,7 @@ cellcount=649
 
 period = 23.7000
 
-vol=440
+vol=300
 
 randomy0 = False
 

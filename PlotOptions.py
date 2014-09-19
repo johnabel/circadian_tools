@@ -50,19 +50,19 @@ def PlotOptions(uselatex=False):
     # colors: 377EB8, E41A1C, 4DAF4A, 984EA3, FF7F00, FFFF33, A65628, F781BF
     #medium darkness
     matplotlib.colors.ColorConverter.colors['f'] = \
-            (0.256862745, 0.4941176471,0.7215686275)
+            (55/255, 126/255, 184/255)
     matplotlib.colors.ColorConverter.colors['h'] = \
-            (0.8941176471, 0.1019607843, 0.1098039216)
+            (228/255, 26/255, 28/255)
     matplotlib.colors.ColorConverter.colors['i'] = \
-            (0.3019607843, 0.6862745098, 0.2901960784)
+            (77/255, 175/255, 74/255)
     matplotlib.colors.ColorConverter.colors['j'] = \
-            (0.5960784314, 0.3058823529, 0.6392156863)
+            (152/255, 78/255, 163/255)
     
     #lighter
     matplotlib.colors.ColorConverter.colors['fl'] = \
-            (0.6000000000, 0.8196078431,1.000)
+            (153/255, 209/255,255/255)
     matplotlib.colors.ColorConverter.colors['hl'] = \
-            (1.0000000000, 106/255, 107/255)
+            (255/255, 106/255, 107/255)
     matplotlib.colors.ColorConverter.colors['il'] = \
             (186/255, 1.000,184/255)
     matplotlib.colors.ColorConverter.colors['jl'] = \

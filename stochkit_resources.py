@@ -1116,7 +1116,8 @@ class StochPopEval(object):
         
     def PlotPop(self,SV,fignum=1,color='black',conc=False,traces=True,
                 timeshift=0,SingleCell=1):
-
+        # note: the next line has been having issues. if it says there is no 
+        # state, then it needs the _0_0. Not quite sure why yet.
         SVind = self.ydict[SV+'_0_0']
         
         SVindexes = np.array([SVind])
@@ -1125,7 +1126,6 @@ class StochPopEval(object):
         for i in range(len(self.state_names)/self.EqCount-1):
             SVind = SVind+self.EqCount
             SVindexes = np.append(SVindexes,SVind)
-        
         
         plt.figure(fignum)
 
@@ -1156,8 +1156,8 @@ class StochPopEval(object):
         plt.legend()
 
     def PlotPopPartial(self,SV,period,Desc=None,tstart=0,tend=None,fignum=1,conc=False,
-                       label=None,traces=True,**kwargs):
-        #Plot for partial time set
+                       label=None,traces=True,norm = False, **kwargs):
+        #convenience function for plotting chuncks of network-level data
         
         if tend == None:
             tend=np.amax(self.time)
@@ -1175,21 +1175,26 @@ class StochPopEval(object):
         
         plt_time = (self.time[start_ind:end_ind] - self.time[start_ind])/period
         plt.figure(fignum)
-
+        
+        max = np.max(self.trajectories[0][start_ind:,SVindexes])
         if traces is True:
             for i in range(len(SVindexes)):
-                if conc==False:
-                    plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]],
+                if norm == True:
+                    plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]]/max,
                              color='gray',alpha=0.1,zorder=-5)
-                else:
+                elif conc==True:
                     plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]]/self.vol,
                              color='gray',alpha=0.1,zorder=-5)
-
+                else:
+                    plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]],
+                             color='gray',alpha=0.1,zorder=-5)
         ax = plt.gca()
         ax.set_rasterization_zorder(0)
         averageSV = np.mean(self.trajectories[0][start_ind:end_ind,SVindexes],1)
         if conc == True:
             averageSV=averageSV/self.vol
+        if norm == True:
+            averageSV = averageSV/max
             
         plt.plot(plt_time,averageSV,**kwargs)
 
@@ -1209,7 +1214,7 @@ class StochPopEval(object):
         for i in range(indiv):
             SVind = SVind+self.EqCount
             SVindexes = np.append(SVindexes,SVind)
-               
+
         f, ((ax1, ax2, ax3, ax4, ax5)) = plt.subplots(1, 5, sharex='col', sharey='row')
         
         plt_time = (self.time[start_ind:end_ind] - self.time[start_ind])/period
@@ -1239,7 +1244,7 @@ class StochPopEval(object):
 
         #plt.title('State Variable Ocsillation')
         
-    def bl_obj(self,SV='p'):
+    def bl_obj(self,SV='p'):#, xmax=None):
         #Initializes a Bioluminescence object
         
         SVind = self.ydict[SV+'_0_0']
@@ -1251,7 +1256,7 @@ class StochPopEval(object):
             SVindexes = np.append(SVindexes,SVind)
             
         averageSV = np.mean(self.trajectories[0][:,SVindexes],1)   
-        bl_obj = bl.Bioluminescence(self.avgtraj[:,0],averageSV)
+        bl_obj = bl.Bioluminescence(self.avgtraj[:,0],averageSV)#, xmax = xmax)
         return bl_obj
     
     def avgSV(self,SV='p'):

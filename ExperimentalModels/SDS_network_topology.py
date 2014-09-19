@@ -17,13 +17,13 @@ EqCount = 11
 ParamCount = 35
 modelversion='SDSnet'
 
-cellcount=649
+cellcount=20
 
 period = 23.7000
 
 vol=440
 
-randomy0 = True
+randomy0 = False
 
 #better for stoch
 y0in=np.array([ 0.27639502,  1.49578759,  0.23951501,  0.10907372,  0.00704751,

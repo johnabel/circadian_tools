@@ -6,11 +6,11 @@ from scipy import signal, interpolate, optimize, sparse
 from scipy.sparse import dia_matrix, eye as speye
 from scipy.sparse.linalg import spsolve
 
+import pdb
+
 # import matplotlib.pylab as plt
 
 from matplotlib import mlab
-#from CommonFiles.Utilities import (color_range, format_number,
-#                                   round_sig)
 
 import pywt
 
@@ -29,7 +29,7 @@ class Bioluminescence(object):
 
         self.xvals = {'raw' : x}
         self.yvals = {'raw' : y}
-
+        
         if not period_guess:
             period_low  = period_guess/2. if period_guess else 1
             period_high = period_guess*2. if period_guess else 100
@@ -38,7 +38,7 @@ class Bioluminescence(object):
         else:
             # Until scipy fixes their periodogram issues
             self.period = period_guess
-
+        
         self.even_resample(res=len(x))
     
 
@@ -266,6 +266,21 @@ class Bioluminescence(object):
             ax.plot(self.x, comp, color=color)
 
         return ax
+        
+    def power_in_bin(self):
+        """Determines the relative fraction of power in a given 
+        bin. Often used to determine amount of circadian rhythmicity."""
+        
+        red = self.dwt
+        components = red['components']
+        nbins = self.dwt_bins
+        power_bins = np.zeros(nbins)
+        
+        for i in xrange(nbins):
+            
+            power_bins[i] = sum((np.abs(components[i]))**2)
+        
+        self.power_bins = power_bins
 
     def hilbert_envelope(self, y=None):
         """ Calculate the envelope of the function (amplitude vs time)
