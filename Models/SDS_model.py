@@ -9,11 +9,10 @@ Created on Sat Apr 19 12:19:48 2014
 import numpy  as np
 import casadi as cs
 import pdb
-import jha_CommonFiles.stochkit_resources as stk
-import jha_CommonFiles.modelbuilder as mb
+import stochkit_resources as stk
+import modelbuilder as mb
 import matplotlib.pyplot as plt
-import jha_CommonFiles.circadiantoolbox_raw as ctb
-import jha_CommonFiles.Bioluminescence as bl
+import circadiantoolbox as ctb
 import random
 
 EqCount = 11
@@ -122,7 +121,7 @@ def ODEmodel():
     ktlnc  = cs.ssym('ktlnc')
     
     #Signalling
-    vdVIP = cs.ssym("vdVIP")
+    vdVIP = cs.ssym("vdVIP") ### NOT USED
     kdVIP = cs.ssym("kdVIP")
     vdCREB= cs.ssym("vdCREB")
     kdCREB= cs.ssym("kdCREB")
@@ -142,7 +141,10 @@ def ODEmodel():
                            vdCREB, kdCREB, ktlnv  , vgpka  , 
                            kgpka, ktlnc,kcouple])
                         
-    
+    pdb.set_trace()
+    for i in xrange(paramset.shape[0]):
+        print paramset[i],round(param[i],3)
+    pdb.set_trace()
     #===================================================================
     # Model Equations
     #===================================================================
@@ -358,5 +360,6 @@ def SSAcell(fn,y0in,param):
     
     
     
-    
+if __name__ == '__main__':
+    ODEmodel()
     

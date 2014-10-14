@@ -12,7 +12,7 @@ import numpy  as np
 import scipy as scp
 import matplotlib.pyplot as plt
 import minepy as mp
-import statstools.tsa
+import numpy.random as random
 
 import pdb
 
@@ -28,26 +28,50 @@ class network(object):
     """
 
     def __init__(self, xs, sph=None, t=None):
-        """xs should contain multiple time series for analysis.
-        t is an optional series of time points"""
+        """
+        xs should contain multiple time series for analysis. vertical is a 
+        time series for a single node, horizontal is contant time different 
+        nodes.
+        t is an optional series of time points to get the time series correct
+        """
         self.sph = {'raw' : sph}
         if t is not None:
-            self.t = t
-            self.sph = 1/(t[1]-t[0])
+            if len(t) != len(xs[:,0]):
+                print ('ERROR: '
+                    +'Time series data and time array do not match in size.')
+            else:
+                self.t = {'raw': t}
+                self.sph = {'raw': 1/(t[1]-t[0])}
+        
         self.xs = {'raw' : xs}
         self.nodecount = len(xs[0,:])
     
-    def resample(self,des,sph):
-        """des is desired samples/hour, sph is xs samples/hour"""
+    def resample(self,des,sph = None):
+        """
+        des is desired samples/hour, sph is xs samples/hour
+        This is always for downsampling, so that the simulated data will have
+        the same sph as experimental data.
+        
+        As experimental bioluminescence data is an integration, we do that 
+        here as well, summing the values between time points.
+        
+        We assume that samples are evenly spaced.
+        """
+
+        if sph is None:
+            sph = self.sph['raw']
         self.sph['resample'] = des
         #xs_pre_fix = np.copy(self.xs)
-        xs_resample = np.zeros([np.floor(des*len(self.xs)/sph),
+        xs_resample = np.zeros([np.floor(sph*len(self.xs['raw'])/des),
                                 self.nodecount])
+        t_resample = np.zeros([np.floor(sph*len(self.xs['raw'])/des),1])
         for i in range(len(xs_resample)):
-            xs_resample[i,:] = np.sum(self.xs[
-                    int(i*sph/des):int((1+i)*sph/des),:],axis=0)
-        
+            xs_resample[i,:] = np.sum(self.xs['raw'][
+                    int(i*des/sph):int((1+i)*des/sph),:],axis=0)
+            t_resample[i] = self.t['raw'][int((i)*des/sph)]+sph
+            
         self.xs['resample'] = xs_resample
+        self.t['resample'] = t_resample
     
     def mutual_info(self,use_sph='raw'):
         """calculates mutual information between nodes.
@@ -301,4 +325,48 @@ def ROC(adj, infer, cellcount, ints = 1000):
         
         roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
     return roc
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+if __name__ == "__main__":
+    
+    
+    #make up a data series
+    time = np.array(range(0,100))
+    
+    data = np.zeros([100,3])
+    data[:,0] = random.rand(100)
+    data[:,1] = random.rand(100) + 4*np.sin(0.1*time)
+    data[:,2] = 1.6*random.rand(100) + 4*np.sin(0.1*time+0.8)
+    
+    net = network(data,t=time)
+    
+    # changes samples per hour
+    net.resample(2)
+    
+    
+    
+    
+    

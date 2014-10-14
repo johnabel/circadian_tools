@@ -42,9 +42,9 @@ class Bioluminescence(object):
         self.even_resample(res=len(x))
     
 
-    def even_resample(self, res=None):
+    def even_resample(self, res=None, xmax = None):
         """ Ensure even data sampling """
-        self.x, self.y = even_resample(self.x, self.y, res=res)
+        self.x, self.y = even_resample(self.x, self.y, res=res, xmax = xmax)
         self.xvals['even'] = self.x
         self.yvals['even'] = self.y
 
@@ -134,7 +134,8 @@ class Bioluminescence(object):
         self.yvals['exp_amp'] = self.y/exp_traj
 
 
-    def dwt_breakdown(self, best_res=None, wavelet='dmey', mode='sym'):
+    def dwt_breakdown(self, best_res=None, wavelet='dmey', mode='sym', 
+                      xmax = None):
         """ Break the signal down into component frequencies using the
         dwt. 
 
@@ -143,7 +144,7 @@ class Bioluminescence(object):
           bin 
 
         - Also detrends the signal
-          
+        - xmax is maximum amount of time in signal to get consistent sizes
           """
 
         # Sample the interval with a number of samples = 2**n
@@ -168,8 +169,8 @@ class Bioluminescence(object):
             best_res = optimize.fminbound(bins, 2**(curr_pow-1),
                                           2**(curr_pow+1))
 
-        self.even_resample(res=int(best_res))
-
+        self.even_resample(res=int(best_res), xmax = xmax)
+        #print self.xvals['even'][1]-self.xvals['even'][0]
         # self.even_resample(res=2**(curr_pow))
 
         out = dwt_breakdown(self.x, self.y, wavelet=wavelet,
@@ -346,7 +347,7 @@ def lowpass_filter(x, y, cutoff_period=5., order=5):
     return x, y_filt
 
 
-def even_resample(x, y, res=None, s=None, meth='linear'):
+def even_resample(x, y, res=None, s=None, xmax = None, meth='linear'):
     """ Function to resample the x,y dataset to ensure evenly sampled
     data. Uses an interpolating spline, with the default resolution set
     to the current length of the x vector. """
@@ -355,8 +356,11 @@ def even_resample(x, y, res=None, s=None, meth='linear'):
     y = np.asarray(y)
     assert len(x) == len(y), "Resample: Length Mismatch"
     if res == None: res = len(x)
-
-    x_even = np.linspace(x.min(), x.max(), res)
+    
+    if xmax is not None:
+        x_even = np.linspace(x.min(), x.min()+xmax, res)
+    else:
+        x_even = np.linspace(x.min(), x.max(), res)
 
     if meth == 'linear':
         interp_func = interpolate.interp1d(x, y, kind='linear')

@@ -17,11 +17,11 @@ EqCount = 11
 ParamCount = 35
 modelversion='SDSnet'
 
-cellcount=649
+cellcount=20
 
 period = 23.7000
 
-vol=300
+vol=400
 
 randomy0 = False
 

@@ -20,11 +20,12 @@ EqCount = 3
 ParamCount = 13
 modelversion='state3'
 
-cellcount=191
+cellcount=20
 
 period = 23.7000
+couplingstr = 0.005 #default is 1
 
-vol=50
+vol=40
 
 randomy0 = False
 
@@ -263,13 +264,13 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
         
         #Coupled terms - - -------------------------------------------------
         #loops for all cells accumulating their input
-        avg = '0'
-        mcount = 0
+        avg = 'M'+index
+        mcount = 1
         for fromcell in range(cellcount):
             if adjacency[fromcell,indx]!= 0:
                 #The Coupling Part
-                mcount = mcount+1
-                avg = avg+'+M_'+str(fromcell)+'_0'
+                mcount = mcount+couplingstr
+                avg = avg+'+M_'+str(fromcell)+'_0*'+str(couplingstr)
 
         
         weight = 1.0/mcount
