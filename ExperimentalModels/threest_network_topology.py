@@ -198,7 +198,7 @@ def SSAnetwork(fn,y0in,param,adjacency):
                 SSA_builder.SSAmodel.setParameter('alocal',
                                 SSA_builder.SSAmodel.listOfParameters['alocal'].expression+'*('+str(SSA_builder.vol)+')')
         #####
-        #Adds reaction
+        #Adds reaction for coupling
         rxn=stk.Reaction(name='Cell'+str(indx)+'_Reaction0',
                          reactants={},
                         products={'M_'+str(indx)+'_0':1},

@@ -187,7 +187,9 @@ def SSAmodelC(fn,y0in,param):
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
     
-    To uncouple the model, set parameter 35 (last parameter) to 0, and also set.    
+    To uncouple the model, set parameter 35 (last parameter) to 0, and also 
+    set VIP production to 0.
+    
     """
     
     #Converts concentration to population

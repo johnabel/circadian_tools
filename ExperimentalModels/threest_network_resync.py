@@ -18,9 +18,9 @@ import matplotlib.pyplot as plt
 
 EqCount = 3
 ParamCount = 13
-modelversion='state3'
+modelversion='threest'
 
-cellcount=20
+cellcount=649
 
 period = 23.7000
 couplingstr = 0.005 #default is 1
@@ -98,7 +98,7 @@ def ODEmodel():
         return -k1*Pc + k2*Pn
     
     def Pn_comp(k1,k2,Pc,Pn):
-        return k1*Pc - k1*Pn
+        return k1*Pc - k2*Pn
 
     #Rxns
     ode[0] = (pm_prod(Pn, k1, vs0, n, light, alocal, M, M) - pm_deg(M,km,vm))
@@ -266,13 +266,14 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
         #loops for all cells accumulating their input
         avg = 'M'+index
         mcount = 1
+        pdb.set_trace()
         for fromcell in range(cellcount):
             if adjacency[fromcell,indx]!= 0:
                 #The Coupling Part
                 mcount = mcount+couplingstr
                 avg = avg+'+M_'+str(fromcell)+'_0*'+str(couplingstr)
 
-        
+        pdb.set_trace()
         weight = 1.0/mcount
         #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
         if (str(SSA_builder.pvaldict['vs0']) ==
@@ -325,17 +326,18 @@ if __name__=='__main__':
     ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
     sol = ODEsolC.intODEs_sim(y0in,100)
     tsol = ODEsolC.ts
-    plt.plot(sol)
+    plt.plot(tsol,sol)
     plt.show()
     
     tf=10
     inc = 0.05
+    cellcount=3
     adjacency = np.array([[1,1,0],[0,1,1],[0,0,1]])#, 
                               #[0,0.5,0.5,0], 
                               #[0,0,0.5,0],
                               #[0,0,0,0]])
     
-    SSAnet,state_names,param_names = SSAnetwork(ODEmodel(),
+    SSAnet,state_names,param_names = ssa_desync(ODEmodel(),
                                                     y0in,param,adjacency)
     
     pdb.set_trace()

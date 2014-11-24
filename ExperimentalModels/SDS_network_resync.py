@@ -17,7 +17,7 @@ EqCount = 11
 ParamCount = 35
 modelversion='SDSnet'
 
-cellcount=20
+cellcount=100
 
 period = 23.7000
 

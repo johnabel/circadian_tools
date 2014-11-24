@@ -1,43 +1,19 @@
 <Model>
   <Description></Description>
-  <NumberOfReactions>18</NumberOfReactions>
-  <NumberOfSpecies>9</NumberOfSpecies>
+  <NumberOfReactions>6</NumberOfReactions>
+  <NumberOfSpecies>3</NumberOfSpecies>
   <SpeciesList>
     <Species>
-      <Id>M_0_0</Id>
-      <InitialPopulation>105.0</InitialPopulation>
+      <Id>M</Id>
+      <InitialPopulation>105</InitialPopulation>
     </Species>
     <Species>
-      <Id>Pc_0_0</Id>
-      <InitialPopulation>17.0</InitialPopulation>
+      <Id>Pc</Id>
+      <InitialPopulation>17</InitialPopulation>
     </Species>
     <Species>
-      <Id>Pn_0_0</Id>
-      <InitialPopulation>21.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>M_1_0</Id>
-      <InitialPopulation>105.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>Pc_1_0</Id>
-      <InitialPopulation>17.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>Pn_1_0</Id>
-      <InitialPopulation>21.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>M_2_0</Id>
-      <InitialPopulation>105.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>Pc_2_0</Id>
-      <InitialPopulation>17.0</InitialPopulation>
-    </Species>
-    <Species>
-      <Id>Pn_2_0</Id>
-      <InitialPopulation>21.0</InitialPopulation>
+      <Id>Pn</Id>
+      <InitialPopulation>21</InitialPopulation>
     </Species>
   </SpeciesList>
   <ParametersList>
@@ -96,177 +72,61 @@
   </ParametersList>
   <ReactionsList>
     <Reaction>
-      <Id>M degradation_0_0</Id>
+      <Id>Reaction0</Id>
       <Type>customized</Type>
-      <PropensityFunction>vm*M_0_0/(km+M_0_0)</PropensityFunction>
-      <Reactants>
-        <SpeciesReference id="M_0_0" stoichiometry="1"/>
-      </Reactants>
-      <Products/>
-    </Reaction>
-    <Reaction>
-      <Id>Pc translation_0_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>M_0_0*ks</PropensityFunction>
+      <PropensityFunction>vs0*pow(k1,n)/(pow(k1,n)+pow(Pn,n))</PropensityFunction>
       <Reactants/>
       <Products>
-        <SpeciesReference id="Pc_0_0" stoichiometry="1"/>
+        <SpeciesReference id="M" stoichiometry="1"/>
       </Products>
     </Reaction>
     <Reaction>
-      <Id>Pc degradation_0_0</Id>
+      <Id>Reaction1</Id>
       <Type>customized</Type>
-      <PropensityFunction>vd*Pc_0_0/(kd+Pc_0_0)</PropensityFunction>
+      <PropensityFunction>vm*M/(km+M)</PropensityFunction>
       <Reactants>
-        <SpeciesReference id="Pc_0_0" stoichiometry="1"/>
+        <SpeciesReference id="M" stoichiometry="1"/>
       </Reactants>
       <Products/>
     </Reaction>
     <Reaction>
-      <Id>cyto/nuc_0_0_tonuc</Id>
+      <Id>Reaction2</Id>
+      <Type>customized</Type>
+      <PropensityFunction>M*ks</PropensityFunction>
+      <Reactants/>
+      <Products>
+        <SpeciesReference id="Pc" stoichiometry="1"/>
+      </Products>
+    </Reaction>
+    <Reaction>
+      <Id>Reaction3</Id>
+      <Type>customized</Type>
+      <PropensityFunction>vd*Pc/(kd+Pc)</PropensityFunction>
+      <Reactants>
+        <SpeciesReference id="Pc" stoichiometry="1"/>
+      </Reactants>
+      <Products/>
+    </Reaction>
+    <Reaction>
+      <Id>Reaction4_tonuc</Id>
       <Type>mass-action</Type>
       <Rate>k1_</Rate>
       <Reactants>
-        <SpeciesReference id="Pc_0_0" stoichiometry="1"/>
+        <SpeciesReference id="Pc" stoichiometry="1"/>
       </Reactants>
       <Products>
-        <SpeciesReference id="Pn_0_0" stoichiometry="1"/>
+        <SpeciesReference id="Pn" stoichiometry="1"/>
       </Products>
     </Reaction>
     <Reaction>
-      <Id>cyto/nuc_0_0_tocyto</Id>
+      <Id>Reaction4_tocyto</Id>
       <Type>mass-action</Type>
       <Rate>k2_</Rate>
       <Reactants>
-        <SpeciesReference id="Pn_0_0" stoichiometry="1"/>
+        <SpeciesReference id="Pn" stoichiometry="1"/>
       </Reactants>
       <Products>
-        <SpeciesReference id="Pc_0_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>M degradation_1_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>vm*M_1_0/(km+M_1_0)</PropensityFunction>
-      <Reactants>
-        <SpeciesReference id="M_1_0" stoichiometry="1"/>
-      </Reactants>
-      <Products/>
-    </Reaction>
-    <Reaction>
-      <Id>Pc translation_1_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>M_1_0*ks</PropensityFunction>
-      <Reactants/>
-      <Products>
-        <SpeciesReference id="Pc_1_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>Pc degradation_1_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>vd*Pc_1_0/(kd+Pc_1_0)</PropensityFunction>
-      <Reactants>
-        <SpeciesReference id="Pc_1_0" stoichiometry="1"/>
-      </Reactants>
-      <Products/>
-    </Reaction>
-    <Reaction>
-      <Id>cyto/nuc_1_0_tonuc</Id>
-      <Type>mass-action</Type>
-      <Rate>k1_</Rate>
-      <Reactants>
-        <SpeciesReference id="Pc_1_0" stoichiometry="1"/>
-      </Reactants>
-      <Products>
-        <SpeciesReference id="Pn_1_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>cyto/nuc_1_0_tocyto</Id>
-      <Type>mass-action</Type>
-      <Rate>k2_</Rate>
-      <Reactants>
-        <SpeciesReference id="Pn_1_0" stoichiometry="1"/>
-      </Reactants>
-      <Products>
-        <SpeciesReference id="Pc_1_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>M degradation_2_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>vm*M_2_0/(km+M_2_0)</PropensityFunction>
-      <Reactants>
-        <SpeciesReference id="M_2_0" stoichiometry="1"/>
-      </Reactants>
-      <Products/>
-    </Reaction>
-    <Reaction>
-      <Id>Pc translation_2_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>M_2_0*ks</PropensityFunction>
-      <Reactants/>
-      <Products>
-        <SpeciesReference id="Pc_2_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>Pc degradation_2_0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>vd*Pc_2_0/(kd+Pc_2_0)</PropensityFunction>
-      <Reactants>
-        <SpeciesReference id="Pc_2_0" stoichiometry="1"/>
-      </Reactants>
-      <Products/>
-    </Reaction>
-    <Reaction>
-      <Id>cyto/nuc_2_0_tonuc</Id>
-      <Type>mass-action</Type>
-      <Rate>k1_</Rate>
-      <Reactants>
-        <SpeciesReference id="Pc_2_0" stoichiometry="1"/>
-      </Reactants>
-      <Products>
-        <SpeciesReference id="Pn_2_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>cyto/nuc_2_0_tocyto</Id>
-      <Type>mass-action</Type>
-      <Rate>k2_</Rate>
-      <Reactants>
-        <SpeciesReference id="Pn_2_0" stoichiometry="1"/>
-      </Reactants>
-      <Products>
-        <SpeciesReference id="Pc_2_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>per production for 0</Id>
-      <Type>customized</Type>
-      <PropensityFunction>std::max(0.0,(vs0+alocal*(0+M_0_0)*1.0-M_0_0))*pow(k1,n)/(pow(k1,n)+pow(Pn_0_0,n))</PropensityFunction>
-      <Reactants/>
-      <Products>
-        <SpeciesReference id="M_0_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>per production for 1</Id>
-      <Type>customized</Type>
-      <PropensityFunction>std::max(0.0,(vs0+alocal*(0+M_0_0+M_1_0)*0.5-M_1_0))*pow(k1,n)/(pow(k1,n)+pow(Pn_1_0,n))</PropensityFunction>
-      <Reactants/>
-      <Products>
-        <SpeciesReference id="M_1_0" stoichiometry="1"/>
-      </Products>
-    </Reaction>
-    <Reaction>
-      <Id>per production for 2</Id>
-      <Type>customized</Type>
-      <PropensityFunction>std::max(0.0,(vs0+alocal*(0+M_1_0+M_2_0)*0.5-M_2_0))*pow(k1,n)/(pow(k1,n)+pow(Pn_2_0,n))</PropensityFunction>
-      <Reactants/>
-      <Products>
-        <SpeciesReference id="M_2_0" stoichiometry="1"/>
+        <SpeciesReference id="Pc" stoichiometry="1"/>
       </Products>
     </Reaction>
   </ReactionsList>
