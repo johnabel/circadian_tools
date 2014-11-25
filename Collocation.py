@@ -59,7 +59,8 @@ class Collocation:
 
 if __name__ == "__main__":
 
-    from jha_CommonFiles import CircadianToolbox
-    from jha_CommonFiles.Models.tyson2statemodel import model, param, y0n
+    import CircadianToolbox as ctb
+    from Models.tyson2statemodel import model, param, y0n
 
+    test = Collocation(model)
 
