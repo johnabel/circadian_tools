@@ -115,6 +115,7 @@ def main():
     sol = ODEsol.intODEs_sim(y0LC,10,numsteps=1000)
     tsol = ODEsol.ts 
     
+    pdb.set_trace()
     trajectories = stk.stochkit(SSAmodel,job_id='tyson',t=10,number_of_trajectories=100,increment=0.1)
     
     StochEval = stk.StochEval(trajectories,state_names,param_names,vol)
