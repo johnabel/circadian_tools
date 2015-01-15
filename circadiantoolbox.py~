@@ -71,14 +71,17 @@ class CircEval(object):
             
     #========================================================================
     #                   ODE INTEGRATION
-    #========================================================================            
-    def intODEs(self, y0LC, tf = 1000, numsteps = 1000):
+    #======================================================================== 
+          
+    def intODEs(self, y0=None, tf = 1000, numsteps = 1000):
         """
         This function integrates the ODEs until well past the transients. Inputs:
             tf          -   the final time of integration. the number of time steps within [0,tf] is below,
                             set usually to 1000
             numsteps    -   the number of steps in the integration.
         """
+        if y0==None: y0 = self.y0
+        else: self.y0 = y0
 
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -93,7 +96,7 @@ class CircEval(object):
         self.ts = np.linspace(0,tf,numsteps)
         
         
-        self.integrator.setInput((y0LC[:]),cs.INTEGRATOR_X0)
+        self.integrator.setInput((y0[:]),cs.INTEGRATOR_X0)
         self.integrator.setInput(self.param,cs.INTEGRATOR_P)
         self.integrator.evaluate()
         self.integrator.reset()
@@ -137,16 +140,19 @@ class CircEval(object):
             return self.integrator.output().toArray().squeeze()
         
         LCpoint = np.array([out(tf)]).squeeze()
-        return LCpoint
+        self.y0 = LCpoint
+	return LCpoint
     
         
-    def intODEs_sim(self, y0LC, tf, numsteps=10000):
+    def intODEs_sim(self, tf, y0=None, numsteps=10000):
         """
         This function integrates the ODEs until well past the transients. This uses Casadi's simulator
         class, C++ wrapped in swig. Inputs:
             tf          -   the final time of integration.
             numsteps    -   the number of steps in the integration is the second argument
         """
+        if y0==None: y0 = self.y0
+        else: self.y0 = y0
         
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -162,10 +168,11 @@ class CircEval(object):
         
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
-        self.simulator.setInput((y0LC[:]),cs.INTEGRATOR_X0)
+        self.simulator.setInput((y0[:]),cs.INTEGRATOR_X0)
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
-
+	
+	self.sol = self.simulator.output().toArray()
         return self.simulator.output().toArray()
 
     def burnTransient_sim(self, tf=1000, numsteps=10000):
@@ -194,7 +201,11 @@ class CircEval(object):
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
         ss= self.simulator.output().toArray()
-        return ss[len(ss)-1]
+
+        self.y0 = ss[-1]
+        pdb.set_trace()
+
+        return ss[-1]
 
 
     #========================================================================
@@ -202,30 +213,29 @@ class CircEval(object):
     #========================================================================  
     
     def find_period(self,t,sol,StateVar=None):
-        """
-        This function will find the period of a solution of the system of ODEs. If there is no
-        period, it will return a negative value. The inputs to this function are:
+        """ This function will find the period of a solution of the system of
+        ODEs. If there is no period, it will return a negative value. The
+        inputs to this function are:
             
-            t           -   the 1D array of time values
-            sol         -   the solution array for the state variables. the period is calculated from
-                            the first state variable, but the zero crossings of the other state
-                            variables are also tested to ensure that the solution is periodic in all
-                            state variables
-            perCount    -   the number of periods to take before determining the standard deviation
-                            default value is 8.
+            t           -   the 1D array of time values 
+            sol         -   the
+            solution array for the state variables. the period is
+            calculated from the first state variable, but the zero
+            crossings of the other state variables are also tested to
+            ensure that the solution is periodic in all state variables
+            perCount    -   the number of periods to take before
+            determining the standard deviation default value is 8.
                             
-        Sequence of operations: 
-                                1. remove first 30% of t and sol values (cut transient)
-                                2. subtract mean from sol, create index of 0s
-                                3. find the times at which it crosses 0
-                                4. determine each period length for first perCount periods
-                                5. take standard deviation of periods, if less than pertol, accept.
-                                6. check to ensure that other parameters are oscillating as well.
-                                7. if too high stdev, or not enough 0s, return -1.
-                                8. else, return period.
+        Sequence of operations: 1. remove first 30% of t and sol values
+        (cut transient) 2. subtract mean from sol, create index of 0s 3.
+        find the times at which it crosses 0 4. determine each period
+        length for first perCount periods 5. take standard deviation of
+        periods, if less than pertol, accept.  6. check to ensure that
+        other parameters are oscillating as well.  7. if too high stdev, or 
+        not enough 0s, return -1.  8. else, return period.
                                 
-                                **period as an output returns [period or error number, stdev]
-        """
+                                **period as an output returns [period or
+                                error number, stdev] """
 
         
         #takes mean values of each state variable, subtracts mean so that the oscillations occur about 0
@@ -274,6 +284,8 @@ class CircEval(object):
        
         period = [per, stdevper]
         
+        self.period = per
+
         return period
         
 
@@ -281,7 +293,7 @@ class CircEval(object):
 
 
 
-    def find_y0PLC(self, t, sol, period, StateVar):
+    def find_y0PLC(self, t, sol, period=None, StateVar=None):
         """
         Identifies a point on the limit cycle such that the first state variable is at 0,
         sets this to the y0.
@@ -295,11 +307,17 @@ class CircEval(object):
         Outputs:
             y0dawn, dawn index, tnew, ynew
         """
-        stateindex = self.ydict[StateVar]
+
+        if period is None:
+            period = self.period
         
+        if StateVar:
+                stateindex = self.ydict[StateVar]
+        else: stateindex=0
+    
         pts = 10000 #minimum discretization of single limit cycle
         #accurate to O(log(pts-1))
-
+    
         single_per_ptcount = int(period*len(t)/np.amax(t))
             
         #artificial time is merely a set of points
@@ -311,20 +329,23 @@ class CircEval(object):
             #this creates a spline interpolation for each state variable
             tck = splrep(t[0:3*single_per_ptcount], sol[0:3*single_per_ptcount,i])
             ynew[:,i] = splev(tnew[:],tck,der=0)
-
+    
         maxCryPer_mRNAindex = np.argmax(ynew[pts:2*pts,stateindex])+pts
     
-
+    
         t_dawn = tnew[maxCryPer_mRNAindex] - 7*period/24
         if t_dawn > period:
             t_dawn=t_dawn-period    
             
         dawn_index = np.argmin(np.abs(tnew-t_dawn))            
-
+    
         #this is from a spline interpolation.
         y0dawn = ynew[dawn_index+pts,:]
-    
-        return [y0dawn, dawn_index, tnew, ynew]
+        
+        self.y0dawn = y0dawn
+        self.t = tnew
+        self.y = ynew
+        #return [y0dawn, dawn_index, tnew, ynew]
         
        
     #========================================================================

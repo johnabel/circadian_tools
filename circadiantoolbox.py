@@ -71,14 +71,16 @@ class CircEval(object):
             
     #========================================================================
     #                   ODE INTEGRATION
-    #========================================================================            
-    def intODEs(self, y0LC, tf = 1000, numsteps = 1000):
+    #======================================================================== 
+          
+    def intODEs(self, y0=None, tf = 1000, numsteps = 1000):
         """
         This function integrates the ODEs until well past the transients. Inputs:
             tf          -   the final time of integration. the number of time steps within [0,tf] is below,
                             set usually to 1000
             numsteps    -   the number of steps in the integration.
         """
+        if y0==None: y0 = self.y0
 
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -93,7 +95,7 @@ class CircEval(object):
         self.ts = np.linspace(0,tf,numsteps)
         
         
-        self.integrator.setInput((y0LC[:]),cs.INTEGRATOR_X0)
+        self.integrator.setInput((y0[:]),cs.INTEGRATOR_X0)
         self.integrator.setInput(self.param,cs.INTEGRATOR_P)
         self.integrator.evaluate()
         self.integrator.reset()
@@ -137,16 +139,18 @@ class CircEval(object):
             return self.integrator.output().toArray().squeeze()
         
         LCpoint = np.array([out(tf)]).squeeze()
-        return LCpoint
+        self.y0 = LCpoint
+	return LCpoint
     
         
-    def intODEs_sim(self, y0LC, tf, numsteps=10000):
+    def intODEs_sim(self, tf, y0=None, numsteps=10000):
         """
         This function integrates the ODEs until well past the transients. This uses Casadi's simulator
         class, C++ wrapped in swig. Inputs:
             tf          -   the final time of integration.
             numsteps    -   the number of steps in the integration is the second argument
         """
+        if y0==None: y0 = self.y0
         
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -162,10 +166,11 @@ class CircEval(object):
         
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
-        self.simulator.setInput((y0LC[:]),cs.INTEGRATOR_X0)
+        self.simulator.setInput((y0[:]),cs.INTEGRATOR_X0)
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
-
+	
+	self.sol = self.simulator.output().toArray()
         return self.simulator.output().toArray()
 
     def burnTransient_sim(self, tf=1000, numsteps=10000):
@@ -194,14 +199,18 @@ class CircEval(object):
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
         ss= self.simulator.output().toArray()
-        return ss[len(ss)-1]
+
+        self.y0 = ss[-1]
+
+
+        return ss[-1]
 
 
     #========================================================================
     #                   Period Finding, Limit Cycle Identification
     #========================================================================  
     
-    def find_period(self,t,sol,StateVar=None):
+    def find_period(self,t=None,sol=None,StateVar=None):
         """ This function will find the period of a solution of the system of
         ODEs. If there is no period, it will return a negative value. The
         inputs to this function are:
@@ -225,7 +234,10 @@ class CircEval(object):
                                 
                                 **period as an output returns [period or
                                 error number, stdev] """
-
+        if sol == None:
+            sol = self.sol
+        if t==None:
+            t = self.ts
         
         #takes mean values of each state variable, subtracts mean so that the oscillations occur about 0
 	if StateVar:
