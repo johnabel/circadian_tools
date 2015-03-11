@@ -234,44 +234,32 @@ class CircEval(object):
                                 
                                 **period as an output returns [period or
                                 error number, stdev] """
+        from jha_utilities import roots
+        
         if sol == None:
             sol = self.sol
         if t==None:
             t = self.ts
         
         #takes mean values of each state variable, subtracts mean so that the oscillations occur about 0
-	if StateVar:
-	    stateindex = self.ydict[StateVar]
+        if StateVar:
+            stateindex = self.ydict[StateVar]
         else: stateindex=0
         
-        matmean = np.zeros(len(sol[0,:]))
-        for i in range(len(sol[0,:])):
-            matmean[i]=np.mean(sol[:,i]) 
+        sol_norm = sol[:,stateindex]-sol[:,stateindex].mean()    
 
-        sol_eval = sol-matmean
-
-        #Index for where zero is crossed
-        zci = np.where(np.diff(np.sign(sol_eval[:,stateindex])))[0]
+        zero_arr = roots(sol_norm,t)
         
-        #if not enough zeros occur, returns a period of -2. this may occur when 
-        if len(zci) < 6:
+        if len(zero_arr) < 6:
             period = [-2, 'stable']
             return period
-        
-        #times of 0-crossing
-        zerocross_time = np.zeros(len(zci))
-
-        #linear interpolation to find period
-        for i in range(len(zci)):
-            slope = (sol_eval[zci[i]+1,stateindex]-sol_eval[zci[i],stateindex])/(t[zci[i]+1]-t[zci[i]])
-            #(f(x2)-f(x1))/(x2-x1) = b2
-            
-            zerocross_time[i] = t[zci[i]] - sol_eval[zci[i],stateindex]/slope
                         
-        period_array = np.zeros(int(len(zci)/2)-1)
-        for i in range(int(len(zci)/2)-1):
-            period_array[i] = zerocross_time[2*i+2]-zerocross_time[2*i]
+        period_array = np.zeros(int(len(zero_arr)/2)-1)
+
+        for i in range(int(len(zero_arr)/2)-1):
+            period_array[i] = zero_arr[2*i+2]-zero_arr[2*i]
         
+
         per = np.mean(period_array)
         stdevper = np.std(period_array)
         
@@ -279,14 +267,14 @@ class CircEval(object):
             period = [-5, 'nan']
             return period
         
-        if stdevper > 0.001*per:
+        if stdevper > 0.01*per:
             period = [-3, per, stdevper]
             return period
-       
+           
         period = [per, stdevper]
         
         self.period = per
-
+        
         return period
         
 

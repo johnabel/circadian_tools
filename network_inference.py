@@ -10,9 +10,16 @@ from __future__ import division
 import itertools
 import numpy  as np
 import scipy as scp
+from scipy import sparse
+from scipy import signal
+import statsmodels.tsa.filters as filters
 import matplotlib.pyplot as plt
+import PlotOptions as plo
 import minepy as mp
 import numpy.random as random
+import networkx as nx
+
+from scoop import futures
 
 import pdb
 
@@ -27,28 +34,42 @@ class network(object):
     JH Abel    
     """
 
-    def __init__(self, xs, sph=None, t=None):
+    def __init__(self, data, sph=None, t=None, loc=None):
         """
-        xs should contain multiple time series for analysis. vertical is a 
+        data should contain multiple time series for analysis. vertical is a 
         time series for a single node, horizontal is contant time different 
         nodes.
         t is an optional series of time points to get the time series correct
         """
         self.sph = {'raw' : sph}
         if t is not None:
-            if len(t) != len(xs[:,0]):
+            if len(t) != len(data[:,0]):
                 print ('ERROR: '
                     +'Time series data and time array do not match in size.')
             else:
                 self.t = {'raw': t}
                 self.sph = {'raw': 1/(t[1]-t[0])}
         
-        self.xs = {'raw' : xs}
-        self.nodecount = len(xs[0,:])
+        self.data = {'raw' : data}
+        self.nodecount = len(data[0,:])
+        
+        if loc is not None:
+            # is it a dict?
+            if type(loc) is dict:
+                self.locations = loc
+            # or is it a numpy array
+            elif type(loc) is np.ndarray:
+                loc_dict = {}
+                for i in xrange(len(loc)):
+                    loc_dict[i] = (loc[i,1], loc[i,2])
+                self.locations = loc_dict
+            else:
+                print "Location data type not recognized."
+                
     
     def resample(self,des,sph = None):
         """
-        des is desired samples/hour, sph is xs samples/hour
+        des is desired samples/hour, sph is data samples/hour
         This is always for downsampling, so that the simulated data will have
         the same sph as experimental data.
         
@@ -61,20 +82,22 @@ class network(object):
         if sph is None:
             sph = self.sph['raw']
         self.sph['resample'] = des
-        #xs_pre_fix = np.copy(self.xs)
-        xs_resample = np.zeros([np.floor(sph*len(self.xs['raw'])/des),
+        #data_pre_fix = np.copy(self.data)
+        data_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),
                                 self.nodecount])
-        t_resample = np.zeros([np.floor(sph*len(self.xs['raw'])/des),1])
-        for i in range(len(xs_resample)):
-            xs_resample[i,:] = np.sum(self.xs['raw'][
+        t_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),1])
+        for i in range(len(data_resample)):
+            data_resample[i,:] = np.sum(self.data['raw'][
                     int(i*des/sph):int((1+i)*des/sph),:],axis=0)
             t_resample[i] = self.t['raw'][int((i)*des/sph)]+sph
             
-        self.xs['resample'] = xs_resample
+        self.data['resample'] = data_resample
         self.t['resample'] = t_resample
     
     def mutual_info(self,use_sph='raw'):
-        """calculates mutual information between nodes.
+        """
+        kirsten's MI
+        calculates mutual information between nodes.
         does not rely on scoop"""
         
         mutinfo = np.zeros([self.nodecount,self.nodecount])
@@ -86,39 +109,167 @@ class network(object):
         
         c1 = range(self.nodecount)
         c2 = range(self.nodecount)
+        
         for i in c1:
-            x1 = self.xs[:,i]
+            x1 = self.data[use_sph][:,i]
             for j in c2:
-                x2 = self.xs[:,j]
-                mutinfo[i,j] = mutual_information(x1, x2, max_lag,
-                                                    noverlap, window = window)
-        if self.mi is None:
-            #initialize mi dict
-            self.mi = {use_sph : mutinfo}
-        else: self.mi['use_sph'] = mutinfo
+                x2 = self.data[use_sph][:,j]
+                [C,L,t] = mutual_information(x1, x2, int(max_lag),noverlap, window = window)
 
-    def scoop_mutual_info(self):
-        """calculates mutual information between nodes.
-        uses scoop parallelization"""
+                kirstenIm = np.zeros(len(C[0,:]))
+                for k in range(len(C[0,:])):
+                    kirstenIm[k] = np.max(C[:,k])
+
+                MI = sum(abs(kirstenIm))
+                
+                mutinfo[i,j] = MI
+        if hasattr(self,'mi'):
+            self.mi[use_sph] = mutinfo
+        else: self.mi = {use_sph : mutinfo}
+
+    def parallel_mutual_info(self,use_sph='raw'):
+        """
+        Kirsten's MI
+        calculates mutual information between nodes.
+        uses scoop parallelization
+        Needs more args passed to scoop mi        
+        """
         
         aa = [range(self.nodecount),range(self.nodecount)]
         inds = list(itertools.product(*aa))
-        self.mutualinfo = scoop_mi(inds)[:,:3]
+        MI = scoop_mi(inds)[:,:3]
         
-    def MIC(self):
-        pass
+        mutinfo = np.reshape(MI,[self.nodecount,self.nodecount])
+        
+        if hasattr(self,'mi'):
+            self.mi[use_sph] = mutinfo
+        else: self.mi = {use_sph : mutinfo}
+        
+        
+    def MIC(self,use_sph='raw'):
+        """
+        Serial calculation of MIC for an array of trajectories.
+        """
+        c1 = range(self.nodecount)
+        c2 = range(self.nodecount)
+        
+        mic = np.zeros([self.nodecount,self.nodecount])
+        for i in c1:
+            x1 = self.data[use_sph][:,i]
+            for j in c2:
+                if i<=j:
+                    x2 = self.data[use_sph][:,j]
+                    mic[i,j] = mp.minestats(x1,x2)['mic']
+                else: 
+                    mic[i,j] = mic[j,i]
+        
+        if hasattr(self,'mic'):
+            self.mic[use_sph] = mic
+        else: self.mic = {use_sph : mic}
     
-    def scoop_MIC(self):
-        pass
-    
+    def parallel_MIC(self,use_sph='raw'):
+        """
+        Parallel calculation of MIC for an array of trajectories. It calls 
+        the function below it, scoop_mp, which is parallelizable.
+        """
+        # index list setup
+        inds = list(itertools.combinations_with_replacement(
+                    range(self.nodecount),2))
+        # takes correct data to pass to MIC
+        self.data['mic']= self.data[use_sph]
+        info = list(futures.map(self.scoop_mp,inds))
+        
+        # fill in a connectivity matrix
+        mic = np.zeros([self.nodecount,self.nodecount])
+        for i in range(len(info)):
+            mic[info[i][0],info[i][1]] = info[i][2]
+            mic[info[i][1],info[i][0]] = info[i][2]
+            
+        if hasattr(self,'mic'):
+            self.mic[use_sph] = mic
+        else: self.mic = {use_sph : mic}
+
+    def ipython_MIC(self,use_sph='raw'):
+        """
+        Parallel calculation of MIC for an array of trajectories. It calls 
+        the function below it, ipython_mp, which is parallelizable.
+        """
+        from IPython import parallel as pll        
+        
+        # checks to make sure Client may be run
+        try: client = pll.Client()
+        except IOError, e:
+            print "Cannot run parallel calculation, no engines running."
+            print e
+            return
+        
+        import time
+        start_time = time.time()
+        print client.ids
+        # index list setup
+        inds = list(itertools.combinations_with_replacement(
+                    range(self.nodecount),2))
+                    
+        # takes correct dataset to pass to MIC
+        self.data['mic']= self.data[use_sph]
+        
+        # feed data correctly
+        feed_data = []
+        for i in inds:
+            # incredibly obnoxious to get into correct format
+            feed_data.append(np.vstack((self.data['mic'][:,i[0]], self.data['mic'][:,i[1]])).T)# transform to get it to be veritcal
+        
+        self.feed_data_mic = feed_data
+        
+        #parallel component
+        dview = client[:] # use all nodes alotted
+        #include necessary imports for function
+        dview.execute('import minepy as mp')
+            
+        info = dview.map_sync(ipython_mp,feed_data)
+        
+        end_time = time.time()-start_time
+        print end_time
+        
+        # fill in a connectivity matrix
+        mic = np.zeros([self.nodecount,self.nodecount])
+        for i in range(len(inds)):
+            mic[inds[i][0],inds[i][1]] = info[i]
+            mic[inds[i][1],inds[i][0]] = info[i]
+            
+        if hasattr(self,'mic'):
+            self.mic[use_sph] = mic
+        else: self.mic = {use_sph : mic}
+        
+    def scoop_mp(self,inds):
+        """
+        Function that is only called to parallelize the MIC calculation. This
+        function is parallelizable and only takes indexes as input.
+        """
+        [c1,c2] = inds
+        ts1 = self.data['mic'][:,c1]
+        ts2 = self.data['mic'][:,c2]
+        return [c1,c2,mp.minestats(ts1,ts2)['mic']]
+        
     def pearson_r2(self):
         pass
     
-    def create_adjacency(self, method='def', thresh=0.90):
+    def create_adjacency(self,method='def', sph='raw', thresh=0.90, adj=None):
         """method def allows you to define an adjacency matrix, method mic 
         allows you to generate one from mic, method mi allows you to generate
         one from mi, r2 from r2."""
-        pass
+        
+        #defining one        
+        if method=='def':
+            if hasattr(self,'adj'):
+                self.adj[method] = adj
+            else: self.adj = {method : adj}
+
+        if method=='mic':
+            adj = np.floor(self.mic[sph]+1-thresh) #floors values below thresh
+            if hasattr(self,'adj'):
+                self.adj['%.2f' % (thresh)] = adj
+            else: self.adj = {'%.2f' % (thresh) : adj}
 
     def simulate_from_adjacency(self, model='SDS', adj='def'):
         """allows you to simulate the network from a certain adjacency
@@ -126,15 +277,90 @@ class network(object):
         pass
 
 
+    def detrend_constant(self,data='raw'):
+        """
+        detrends by subtracting a constant
+        """
+        detrended = detrend_constant(self.data[data])
+        self.data['detrend_cons'] = detrended
+    
+    def detrend_hodrick_prescott(self,data='raw',
+                                 smoothing_parameter = 100000):
+        """
+        detrends using a hodrick-prescott filter. 
+        data: which data set you want to h-p detrend. defaults to 'raw'
+        smoothing_parameter: hp smoothing parameter, defaults to 10000
+        """
+        detrended = detrend_hodrick_prescott(
+                self.data[data], smoothing_parameter = smoothing_parameter)            
+        
+        self.data['detrend_hp'] = detrended
 
 
 
+    def hilbert_transform(self,detrend='detrend_cons'):
+        """applys a hilbert transform to determine instantaneous phase.
+        data should be detrended before applying this filter method"""
+        
+        # make sure it is detrended
+        try: hil_data = self.data[detrend]
+        except: 
+            print "Constant detrend being used."
+            self.detrend_constant()
+            hil_data = self.data['detrend_cons']
+        
+        # setup phase array        
+        theta = np.zeros(hil_data.shape)
+        
+        #take transform
+        for i in xrange(self.nodecount):
+            hil_trans = signal.hilbert(hil_data[:,i])
+            theta[:,i] = np.arctan2(np.imag(hil_trans),np.real(hil_trans))
+            
+        self.theta = theta
+    
+    def networkx_graph(self,adj=None, colors=None):
+        """creates a networkx graph object for further analysis"""
+        
+        # initialize the object
+        G = nx.Graph()
+        G.add_nodes_from(range(self.nodecount))
+        
+        if adj is not None:
+            edge_list = np.vstack(np.where(self.adj['def']!=0)).T
+            G.add_edges_from(edge_list)
+        
+        self.nx_graph = G
+                
+    def netowrkx_plot(self,ax=None):
+        """plots a networkx graph"""
+        
+        try:
+            G = self.networkx_graph
+        except: 
+            print "Networkx graph must be generated before it is plotted."
 
+        if ax is None:
+            ax = plt.subplot()
+        
+        #Turn off the ticks
+        plt.tick_params(\
+                axis='both',       # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom='off',      # ticks along the bottom edge are off
+                top='off',         # ticks along the top edge are off
+                labelbottom='off',
+                left='off',
+                right='off',
+                labelleft='off')
 
-
-
-
-
+        nx.draw_networkx_nodes(G, 
+                               pos=self.locations,
+                               ax = ax)
+        nx.draw_networkx_edges(G,pos,width=1)
+        
+        pass
+        
 
 
 
@@ -142,7 +368,32 @@ class network(object):
 #in your program
 
 #parts not in the class
+def detrend_constant(data):
+    """
+    detrends by subtracting a constant
+    """
+    detrended = np.zeros(data.shape)
+    nodecount = data.shape[1]
+    
+    for i in xrange(nodecount):
+        detrended[:,i] = signal.detrend(data[:,i],type='constant')
+    
+    return detrended
 
+def detrend_hodrick_prescott(data,smoothing_parameter = 100000):
+    """
+    detrends using a hodrick-prescott filter
+    """
+    detrended = np.zeros(data.shape)
+    nodecount = data.shape[1]
+    
+    for i in xrange(nodecount):
+        cyc,trend = filters.hpfilter(data[:,i],
+                                     smoothing_parameter)
+        detrended[:,i] = cyc
+        
+    return detrended
+    
 def mutual_information(ts1,ts2,max_lag,noverlap,window=None):
     """
     Mutual information function, set up the same way as migram.m
@@ -153,7 +404,7 @@ def mutual_information(ts1,ts2,max_lag,noverlap,window=None):
         window = len(ts1)
     
     nints = np.fix((len(ts1)-noverlap)/(window-noverlap)) #interval count
-    L = range(-max_lag,max_lag+1,1) #range of lags
+    L = range(int(-max_lag),int(max_lag+1)) #range of lags
     C = np.zeros([2*max_lag+1, nints])
     
     #set up lagged arrays, as in migram.m
@@ -228,7 +479,7 @@ def MIcalc(x,y,nbins=10):
     #now, calculate probabilities
     Z = np.zeros(len(x[0,:]))
     for i in range(len(x[0,:])):
-        Pxy = scp.sparse.coo_matrix((np.ones(len(x[:,i])), (x[:,i],y[:,i])), 
+        Pxy = sparse.coo_matrix((np.ones(len(x[:,i])), (x[:,i],y[:,i])), 
                                     shape=[np.max(x[:,i])+1,np.max(y[:,i])+1])
 
         Px = Pxy.sum(axis=0)
@@ -253,27 +504,19 @@ def scoop_mi(inds, ts_data, max_lag, noverlap, window):
     exists so you can call mutual information with a list of indicies,
     and ultimately parallelize the calculation
     """
-    c1 = inds[0]
-    c2 = inds[1]
-    ts1 = ts_data[:,c1]
-    ts2 = ts_data[:,c2]
-    [C,L, t] = mutual_information(ts1,ts2,max_lag,noverlap,window=window)
-    
-    #KIRSTEN METHOD
-    kirstenIm = np.zeros(len(C[0,:]))
-    for k in range(len(C[0,:])):
-        kirstenIm[k] = np.max(C[:,k])
-    
-    #my method: take the mean mut info at the time lag where mutual info is
-    #on average maximum
-    john = np.max(np.mean(C,axis=1))
-    return [c1, c2, kirstenIm, john]
-    
-
-def generate_trajectories(adjacency,tf=10,inc=0.05):
     pass
 
-def ROC(adj, infer, cellcount, ints = 1000):
+def ipython_mp(data):
+    """
+    Function that is only called to parallelize the MIC calculation. This
+    function is parallelizable and only takes indexes as input.
+    """
+    return mp.minestats(data[:,0],data[:,1])['mic']
+
+def generate_trajectories(adjacency,tf=100,inc=0.05):
+    pass
+
+def ROC(adj, infer, ints = 1000):
     """
     Compares adj, the connectivity matrix, to infer, the inferred mutual info
     matrix, to determine the ROC curve. Default of cutoff range from 0 to 1, 
@@ -354,18 +597,25 @@ if __name__ == "__main__":
     
     
     #make up a data series
-    time = np.array(range(0,100))
+    time = np.array(range(0,1000))
     
-    data = np.zeros([100,3])
-    data[:,0] = random.rand(100)
-    data[:,1] = random.rand(100) + 4*np.sin(0.1*time)
-    data[:,2] = 1.6*random.rand(100) + 4*np.sin(0.1*time+0.8)
+    data = np.zeros([1000,3])
+    data[:,0] = random.rand(1000)
+    data[:,1] = random.rand(1000) + 4*np.sin(0.1*time)
+    data[:,2] = 1.6*random.rand(1000) + 4*np.sin(0.1*time+0.8)
     
     net = network(data,t=time)
     
     # changes samples per hour
     net.resample(2)
     
+    net.parallel_MIC(use_sph='resample')
+    net.create_adjacency(sph='resample',thresh=0.50)
+    
+    plt.figure()
+    plt.pcolormesh(net.mic['resample'])
+    plt.figure()
+    plt.pcolormesh(net.adj['0.50'])
     
     
     

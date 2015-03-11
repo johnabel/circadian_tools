@@ -20,7 +20,7 @@ EqCount = 3
 ParamCount = 13
 modelversion='threest'
 
-cellcount=649
+cellcount=150
 
 period = 23.7000
 couplingstr = 0.005 #default is 1
@@ -266,14 +266,14 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
         #loops for all cells accumulating their input
         avg = 'M'+index
         mcount = 1
-        pdb.set_trace()
+
         for fromcell in range(cellcount):
             if adjacency[fromcell,indx]!= 0:
                 #The Coupling Part
                 mcount = mcount+couplingstr
                 avg = avg+'+M_'+str(fromcell)+'_0*'+str(couplingstr)
 
-        pdb.set_trace()
+
         weight = 1.0/mcount
         #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
         if (str(SSA_builder.pvaldict['vs0']) ==

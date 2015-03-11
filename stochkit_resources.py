@@ -1176,13 +1176,13 @@ class StochPopEval(object):
             for i in range(len(SVindexes)):
                 if norm == True:
                     plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]]/max,
-                             color='gray',alpha=0.1,zorder=-5)
+                             color='gray',alpha=0.05,zorder=-5)
                 elif conc==True:
                     plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]]/self.vol,
-                             color='gray',alpha=0.1,zorder=-5)
+                             color='gray',alpha=0.05,zorder=-5)
                 else:
                     plt.plot(plt_time,self.trajectories[0][start_ind:end_ind,SVindexes[i]],
-                             color='gray',alpha=0.1,zorder=-5)
+                             color='gray',alpha=0.05,zorder=-5)
         ax = plt.gca()
         ax.set_rasterization_zorder(0)
         averageSV = np.mean(self.trajectories[0][start_ind:end_ind,SVindexes],1)
@@ -1304,6 +1304,47 @@ class StochPopEval(object):
         a1=bl.periodogram(self.time,averageSV)[1]
         plt.plot(a0,a1)
         plt.xlabel('Period')
+    
+    def find_period(self,SV='p'):
+        
+        SVind = self.ydict[SV+'_0_0']
+        SVindexes = np.arange(SVind,self.trajectories[0].shape[1],11)
+        averageSV = np.mean(self.trajectories[0][:,SVindexes],1)
+        
+        t = self.time
+        
+        from jha_utilities import roots
+        
+        sol_norm = averageSV-averageSV.mean()
+        
+        zero_arr = roots(sol_norm,t)
+        
+        if len(zero_arr) < 6:
+            period = [-2, 'stable']
+            return period
+                        
+        period_array = np.zeros(int(len(zero_arr)/2)-1)
+
+        for i in range(int(len(zero_arr)/2)-1):
+            period_array[i] = zero_arr[2*i+2]-zero_arr[2*i]
+
+        per = np.mean(period_array)
+        stdevper = np.std(period_array)
+        
+        if np.isnan(per):
+            period = [-5, 'nan']
+            return period
+        
+        if stdevper > 0.01*per:
+            period = [-3, per, stdevper]
+            return period
+           
+        period = [per, stdevper]
+        
+        self.period = per
+        
+       
+        return period
         
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0*np.array(data)

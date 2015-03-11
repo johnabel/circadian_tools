@@ -57,6 +57,8 @@ def PlotOptions(uselatex=False):
             (77/255, 175/255, 74/255)
     matplotlib.colors.ColorConverter.colors['j'] = \
             (152/255, 78/255, 163/255)
+    matplotlib.colors.ColorConverter.colors['l'] = \
+            (255/255, 127/255, 0/255)
     
     #lighter
     matplotlib.colors.ColorConverter.colors['fl'] = \
@@ -67,6 +69,8 @@ def PlotOptions(uselatex=False):
             (186/255, 1.000,184/255)
     matplotlib.colors.ColorConverter.colors['jl'] = \
             (248/255, 199/255, 1.00)
+    matplotlib.colors.ColorConverter.colors['ll'] = \
+            (255/255, 173/255, 110/255)
             
     if uselatex:
         matplotlib.rc('text', usetex=True)

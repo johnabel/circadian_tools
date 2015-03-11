@@ -8,6 +8,7 @@ jha
 #import modules
 from __future__ import division
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.interpolate import (splrep, splint, fitpack, splev,
                                UnivariateSpline, dfitpack,
                                InterpolatedUnivariateSpline)
@@ -54,7 +55,17 @@ class spline:
         else:
             return self.amp*(splev(s, self.spl, der=d))
 
+def bode(G,f=np.arange(.01,100,.01),desc=None,color=None):
 
+    jw = 2*np.pi*f*1j
+    y = np.polyval(G.num, jw) / np.polyval(G.den, jw)
+    mag = 20.0*np.log10(abs(y))
+    phase = np.arctan2(y.imag, y.real)*180.0/np.pi % 360
+
+    #plt.semilogx(jw.imag, mag)
+    plt.semilogx(f,mag,label=desc,color=color)
+
+    return mag, phase
 
 
 if __name__ == "__main__":

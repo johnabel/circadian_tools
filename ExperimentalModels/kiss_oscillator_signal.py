@@ -18,6 +18,7 @@ import numpy as np
 import casadi as cs
 import gillespy as gl
 import matplotlib.pyplot as plt
+from numpy import fft
 
 modelversion = 'kiss_oscillator_2011'
 
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     # create deterministic circadian object
     kiss_odes = ctb.CircEval(kiss_model_ode(), param, y0in)
     kiss_odes.burnTransient_sim()
-    kiss_odes.intODEs_sim(50)
+    kiss_odes.intODEs_sim(200)
     
     # plot deterministic solutions
     plo.PlotOptions()
@@ -120,20 +121,33 @@ if __name__ == "__main__":
     plt.legend(loc=0)
     plt.tight_layout(**plo.layout_pad)
     
-    # power spectrum
-    time_step = kiss_odes.ts[1]
-    ps = np.abs(np.fft.fft(kiss_odes.sol[:,0]))**2
-    ps2= np.abs(np.fft.fft(kiss_odes.sol[:,2]))**2
+    # fft setup data
+    tf=200
+    step=2.00020002E-02
+    Fs = 1/step # sampling freq
+    t = np.arange(0, tf, step=step)
     
-    freqs = np.fft.fftfreq(kiss_odes.sol[:,0].size, time_step)
-    idx = np.argsort(freqs)
+    #freq domain
+    connections=np.zeros((2,1))
+    n = len(t)
+    df = Fs/n
+    fft_freqs = np.arange(-Fs/2,Fs/2,df)
     
-    plt.figure()
-    plt.plot(freqs[idx], ps[idx], label = 'e1, V oscillatory')
-    plt.plot(freqs[idx], ps2[idx], label = 'e2')
+    # find pure signal
+    fx2 = np.sin(10*t)
+    Fk2 = fft.fftshift(fft.fft(fft.fftshift(fx2)))
+    freq_index = np.argmax(np.abs(Fk2))
     
+    for out in range(2):
+        exp_ind = 2*out
+        
+        fx = kiss_odes.sol[:,exp_ind]
+        Fk = fft.fftshift(fft.fft(fft.fftshift(fx)))
+        
+        plt.plot(fft_freqs,np.abs(Fk), label=str(out))
+        connections[out] = np.abs(Fk[freq_index])**2
     
-    plt.tight_layout(**plo.layout_pad)
+
     
     plt.show()
     

@@ -20,9 +20,6 @@ EqCount = 11
 ParamCount = 35
 modelversion='SDScoupled16'
 
-xlen = 10
-ylen = 10
-
 period = 23.7000
 
 vol=400
@@ -176,7 +173,7 @@ def ODEmodel():
     # Stochastic Model Portion
     #==================================================================
     
-def SSAmodelC(fn,y0in,param,vol):#,vol=220):
+def SSAmodelC(fn,y0in,param,vol,xlen=10,ylen=10):#,vol=220):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -352,7 +349,13 @@ def SSAcell(fn,y0in,param,vol=220):
 
 
     
+if __name__ == "__main__":
     
+    SSAmodel,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param,vol)
+    
+    for i in range(ParamCount):
+        print param_names[i],
+        print param[i]
     
     
     
