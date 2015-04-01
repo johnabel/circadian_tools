@@ -35,6 +35,31 @@ class fnlist(list):
     def __call__(self,*args,**kwargs):
         return np.array([entry(*args,**kwargs) for entry in self])
 
+def corrsort(mat):
+    """ Function to sort correlation matrix so that correlated variables
+    are closer to eachother.  """
+
+    # Get the eigenvalues and eigenvectors, sort them for increasing
+    # order
+    w, v = np.linalg.eig(mat)
+    v = v[:,w.argsort()]
+    w.sort()
+
+    e1 = v[:,-1]
+    e2 = v[:,-2]
+
+    angles = np.arctan(e2/e1) + ~(e1 > 0) * np.pi
+    order = angles.argsort()
+    angles = angles[order]
+    maxdiff = np.diff(angles).argmax() + 1
+
+    # Expand at maximum angular difference
+    order = np.concatenate((order[maxdiff:],order[:maxdiff]))
+
+    # reorder matrix rows, columns
+    mat = mat[order][:,order]
+
+    return mat, order
 
 class spline:
     """ Periodic data interpolation object used by Collocation. Probably
@@ -43,7 +68,9 @@ class spline:
         self.max = np.array(yvals).max()
         self.min = np.array(yvals).min()
         self.amp = self.max-self.min
+        
         # scaled y (0->1)
+
         self.yscaled = (yvals - self.min)/self.amp
         smooth = sfactor*(len(tvals) - np.sqrt(2*len(tvals)))
         spl = splrep(tvals,self.yscaled,s=smooth,per=True)

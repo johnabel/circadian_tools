@@ -12,17 +12,18 @@ import numpy  as np
 import scipy as scp
 from scipy import sparse
 from scipy import signal
+from scipy.interpolate import UnivariateSpline
 import statsmodels.tsa.filters as filters
 import matplotlib.pyplot as plt
 import PlotOptions as plo
 import minepy as mp
 import numpy.random as random
 import networkx as nx
+from jha_utilities import corrsort
 
 from scoop import futures
 
 import pdb
-
 
 
 #class initiate with set of time series, cell count, adjacency matrix
@@ -189,7 +190,7 @@ class network(object):
             self.mic[use_sph] = mic
         else: self.mic = {use_sph : mic}
 
-    def ipython_MIC(self,use_sph='raw'):
+    def ipython_MIC(self,use_data='raw'):
         """
         Parallel calculation of MIC for an array of trajectories. It calls 
         the function below it, ipython_mp, which is parallelizable.
@@ -211,13 +212,15 @@ class network(object):
                     range(self.nodecount),2))
                     
         # takes correct dataset to pass to MIC
-        self.data['mic']= self.data[use_sph]
+        self.data['mic']= self.data[use_data]
         
         # feed data correctly
         feed_data = []
         for i in inds:
             # incredibly obnoxious to get into correct format
-            feed_data.append(np.vstack((self.data['mic'][:,i[0]], self.data['mic'][:,i[1]])).T)# transform to get it to be veritcal
+            feed_data.append(np.vstack((self.data['mic'][:,i[0]], 
+                                        self.data['mic'][:,i[1]])).T)
+                                        # transform to get it to be veritcal
         
         self.feed_data_mic = feed_data
         
@@ -238,8 +241,8 @@ class network(object):
             mic[inds[i][1],inds[i][0]] = info[i]
             
         if hasattr(self,'mic'):
-            self.mic[use_sph] = mic
-        else: self.mic = {use_sph : mic}
+            self.mic[use_data] = mic
+        else: self.mic = {use_data : mic}
         
     def scoop_mp(self,inds):
         """
@@ -267,6 +270,7 @@ class network(object):
 
         if method=='mic':
             adj = np.floor(self.mic[sph]+1-thresh) #floors values below thresh
+            np.fill_diagonal(adj,0)
             if hasattr(self,'adj'):
                 self.adj['%.2f' % (thresh)] = adj
             else: self.adj = {'%.2f' % (thresh) : adj}
@@ -305,7 +309,7 @@ class network(object):
         # make sure it is detrended
         try: hil_data = self.data[detrend]
         except: 
-            print "Constant detrend being used."
+            print "Constant detrend being used in Helbert transform."
             self.detrend_constant()
             hil_data = self.data['detrend_cons']
         
@@ -319,7 +323,12 @@ class network(object):
             
         self.theta = theta
     
-    def networkx_graph(self,adj=None, colors=None):
+    def unwrap_theta(self,discont=2.5):
+        """unwraps theta into theta_unwrap"""
+        self.theta_unwrap = np.unwrap(self.theta,discont=discont,axis=0)
+        
+    
+    def networkx_graph(self,adj=None):
         """creates a networkx graph object for further analysis"""
         
         # initialize the object
@@ -327,21 +336,25 @@ class network(object):
         G.add_nodes_from(range(self.nodecount))
         
         if adj is not None:
-            edge_list = np.vstack(np.where(self.adj['def']!=0)).T
+            edge_list = np.vstack(np.where(self.adj[adj]!=0)).T
             G.add_edges_from(edge_list)
         
         self.nx_graph = G
                 
-    def netowrkx_plot(self,ax=None):
+    def networkx_plot(self,ax=None, colors=None, invert_y=False):
         """plots a networkx graph"""
         
+        plo.PlotOptions()
         try:
-            G = self.networkx_graph
+            G = self.nx_graph
         except: 
             print "Networkx graph must be generated before it is plotted."
-
+            
         if ax is None:
             ax = plt.subplot()
+        if colors == None:
+            colors = 'f'
+
         
         #Turn off the ticks
         plt.tick_params(\
@@ -353,17 +366,110 @@ class network(object):
                 left='off',
                 right='off',
                 labelleft='off')
-
+        if invert_y==True:
+            plt.gca().invert_yaxis()
         nx.draw_networkx_nodes(G, 
                                pos=self.locations,
-                               ax = ax)
-        nx.draw_networkx_edges(G,pos,width=1)
+                               ax = ax,
+                               node_size=10,
+                               node_color=colors)
+        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1)
         
-        pass
+        
+    def bioluminescence_to_spline(self,sph='raw',s=0):
+        """uses a univariate cubic spline interpolant on single-cell 
+        bioluminescence data. returns univariateSpline objects in a dict"""
+        spline_dict = {}
+        
+        for i in xrange(self.nodecount):
+            spline_dict[i] = UnivariateSpline(self.t[sph],
+                                            self.data[sph][:,i],s=s)
+        try: self.spline_dict['bioluminescence'] = spline_dict
+        except:
+            self.spline_dict = {'bioluminescence':spline_dict}
+            
+    def theta_to_spline(self,sph='raw',s=0):
+        """uses a univariate cubic spline interpolant on single-cell 
+        UNWRAPPED phase. returns univariateSpline objects in a dict"""
+        spline_dict = {}
+        
+        for i in xrange(self.nodecount):
+            spline_dict[i] = UnivariateSpline(self.t['raw'],
+                                            self.theta_unwrap[:,i],s=s)
+        try: self.spline_dict['theta'] = spline_dict
+        except:
+            self.spline_dict = {'theta':spline_dict}
+        
+    
+    def plot_splines(self,splines_name='bioluminescence', derivative=0, 
+                     ax=None, t=None,alpha = 0.1,colors=None):
+        """plots the bioluminescence trances as splines. 
+        can select derivative to plot also. defaults to plotting 
+        bioluminescence as splines."""
+        
+        try: spline = self.spline_dict[splines_name]
+        except: 
+            self.bioluminescence_to_spline()
+            spline = self.spline_dict['bioluminescence']
+        
+        if ax is None: ax = plt.subplot()
+        
+        if t is None: t = self.t['raw']
+        
+        for i in xrange(self.nodecount):
+            if colors is None:
+                color = 'k'
+            else: color= colors[i]
+            ax.plot(t, spline[i].derivative(derivative)(t), alpha=alpha,
+                    color=color)
+                    
+    def corrsort_mic(self):
+        try:
+            mat, ord = corrsort(self.mic['raw']*2-1)
+        except:
+            print "MIC not yet calculated!"
+        
+        #returns sorted matrix, order
+        self.corrsort = [mat, ord]
+    
+    def corrsort_color_groups(self,division_inds,colors):
+        """creates color groups based on corrsort matrices. convenience for 
+        plotting"""
+        color = ['k']*self.nodecount
+        
+        divisions_all= np.append([0],division_inds)
+        divisions_all=np.append(divisions_all,self.nodecount)
         
 
+        for i in range(len(divisions_all)-1):
+            inds = self.corrsort[1][divisions_all[i]:divisions_all[i+1]]
+            for j in inds:
+                color[j] = colors[i]
+        return color
+        
+    def clustering_coeff(self):
+        """celculates the clustering coefficient"""
+        
+        print 'The average clustering coefficient is: ',
+        print nx.average_clustering(self.nx_graph)
+        self.c_delta_avg = nx.average_clustering(self.nx_graph)
+    
+    def average_path_length(self):
+        """celculates the average path length"""
+        if nx.number_connected_components(self.nx_graph) > 1:
+            print 'Unconnected bits exist.'
+            G = self.nx_graph.subgraph(nx.shortest_path(self.nx_graph.to_undirected(),10))
+            print 'The average shortest path length is: ',
+            self.l_avg = nx.average_shortest_path_length(G)
+            print nx.average_shortest_path_length(G)
+            return
+        else: 
+            print 'The average shortest path length is: ',
+            self.l_avg = nx.average_shortest_path_length(self.nx_graph)
+            print nx.average_shortest_path_length(self.nx_graph)
+        
 
-
+        
 #if you want to scoop your inference, import scoop and write its own function
 #in your program
 

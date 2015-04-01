@@ -17,7 +17,7 @@ import pylab as pl
 import matplotlib.pyplot as plt
 import pdb
 from scipy import signal
-from scipy.interpolate import splrep, splev
+from scipy.interpolate import splrep, splev, UnivariateSpline
 
 
 class CircEval(object):
@@ -30,8 +30,8 @@ class CircEval(object):
         Setup the required information
         """
         self.model = model
-        self.EqnCount   = self.model.input(cs.DAE_X).size()
-        self.ParamCount = self.model.input(cs.DAE_P).size()
+        self.neq = self.model.input(cs.DAE_X).size()
+        self.npa = self.model.input(cs.DAE_P).size()
         
         self.model.init()
         self.param = param
@@ -40,19 +40,23 @@ class CircEval(object):
         self.jacy = self.model.jacobian(cs.DAE_X,0); self.jacy.init()
         
         self.ylabels = [self.model.inputSX(cs.DAE_X)[i].getDescription()
-                        for i in xrange(self.EqnCount)]
+                        for i in xrange(self.neq)]
         self.plabels = [self.model.inputSX(cs.DAE_P)[i].getDescription()
-                        for i in xrange(self.ParamCount)]
+                        for i in xrange(self.npa)]
         
         self.pdict = {}
         self.ydict = {}
         
-        for par,ind in zip(self.plabels,range(0,self.ParamCount)):
+        for par,ind in zip(self.plabels,range(0,self.npa)):
             self.pdict[par] = ind
             
-        for par,ind in zip(self.ylabels,range(0,self.EqnCount)):
+        for par,ind in zip(self.ylabels,range(0,self.neq)):
             self.ydict[par] = ind
-            
+        
+        self.param_dict = {}
+        for i in range(self.npa):
+            self.param_dict[self.plabels[i]] = self.param[i]
+        
         self.iv_ydict = {v: k for k, v in self.ydict.items()}
         self.iv_pdict = {v: k for k, v in self.pdict.items()}
         self.intoptions = {
@@ -140,7 +144,7 @@ class CircEval(object):
         
         LCpoint = np.array([out(tf)]).squeeze()
         self.y0 = LCpoint
-	return LCpoint
+        return LCpoint
     
         
     def intODEs_sim(self, tf, y0=None, numsteps=10000):
@@ -162,7 +166,7 @@ class CircEval(object):
         
         #Let's integrate
         self.integrator.init()
-        self.ts = np.linspace(0,tf, numsteps)
+        self.ts = np.linspace(0,tf, numsteps, endpoint=False)
         
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
@@ -170,7 +174,7 @@ class CircEval(object):
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
 	
-	self.sol = self.simulator.output().toArray()
+        self.sol = self.simulator.output().toArray()
         return self.simulator.output().toArray()
 
     def burnTransient_sim(self, tf=1000, numsteps=10000):
@@ -282,7 +286,7 @@ class CircEval(object):
 
 
 
-    def find_y0PLC(self, t, sol, period=None, StateVar=None):
+    def find_y0(self, StateVar=None):
         """
         Identifies a point on the limit cycle such that the first state variable is at 0,
         sets this to the y0.
@@ -296,10 +300,14 @@ class CircEval(object):
         Outputs:
             y0dawn, dawn index, tnew, ynew
         """
-
-        if period is None:
-            period = self.period
         
+        sol = self.sol
+        t = self.ts
+        try: period = self.period
+        except:
+            self.find_period()
+            period = self.period
+            
         if StateVar:
                 stateindex = self.ydict[StateVar]
         else: stateindex=0
@@ -334,8 +342,26 @@ class CircEval(object):
         self.y0dawn = y0dawn
         self.t = tnew
         self.y = ynew
-        #return [y0dawn, dawn_index, tnew, ynew]
+        self.phi = self.t/period*np.pi*2
+
+    def create_splines(self, s=0):
+        """
+        Returns self.spline_dict, which has splines between 0 and 2*pi for 
+        each state of the model. Also includes time as a spline.
+        """
+        spline_dict = {}
+        try: phi = self.phi
+        except: 
+            self.find_y0()
+            phi = self.phi
+            
+        t = self.t
         
+        for i in xrange(self.neq):
+            spline_dict[self.ylabels[i]] = UnivariateSpline(phi,self.y[:,i],s=s)
+        
+        spline_dict['t'] = UnivariateSpline(phi,t)
+        self.spline_dict = spline_dict
        
     #========================================================================
     #                   Fitting Utilities - useful for parameter estimation

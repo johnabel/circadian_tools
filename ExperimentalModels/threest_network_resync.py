@@ -20,7 +20,7 @@ EqCount = 3
 ParamCount = 13
 modelversion='threest'
 
-cellcount=150
+cellcount=191
 
 period = 23.7000
 couplingstr = 0.005 #default is 1
