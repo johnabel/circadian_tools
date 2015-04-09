@@ -127,59 +127,7 @@ class network(object):
             
             self.t['resample'] = t_resample
             self.data['resample'] = data_resample
-                
-            
-        
-    def mutual_info(self,use_sph='raw'):
-        """
-        kirsten's MI
-        calculates mutual information between nodes.
-        does not rely on scoop"""
-        
-        mutinfo = np.zeros([self.nodecount,self.nodecount])
-        
-        sph = self.sph[use_sph]
-        max_lag = 6*sph
-        noverlap = 26*sph
-        window = 30*sph
-        
-        c1 = range(self.nodecount)
-        c2 = range(self.nodecount)
-        
-        for i in c1:
-            x1 = self.data[use_sph][:,i]
-            for j in c2:
-                x2 = self.data[use_sph][:,j]
-                [C,L,t] = mutual_information(x1, x2, int(max_lag),noverlap, window = window)
 
-                kirstenIm = np.zeros(len(C[0,:]))
-                for k in range(len(C[0,:])):
-                    kirstenIm[k] = np.max(C[:,k])
-
-                MI = sum(abs(kirstenIm))
-                
-                mutinfo[i,j] = MI
-        if hasattr(self,'mi'):
-            self.mi[use_sph] = mutinfo
-        else: self.mi = {use_sph : mutinfo}
-
-    def parallel_mutual_info(self,use_sph='raw'):
-        """
-        Kirsten's MI
-        calculates mutual information between nodes.
-        uses scoop parallelization
-        Needs more args passed to scoop mi        
-        """
-        
-        aa = [range(self.nodecount),range(self.nodecount)]
-        inds = list(itertools.product(*aa))
-        MI = scoop_mi(inds)[:,:3]
-        
-        mutinfo = np.reshape(MI,[self.nodecount,self.nodecount])
-        
-        if hasattr(self,'mi'):
-            self.mi[use_sph] = mutinfo
-        else: self.mi = {use_sph : mutinfo}
         
         
     def MIC(self,use_sph='raw'):
@@ -199,28 +147,6 @@ class network(object):
                 else: 
                     mic[i,j] = mic[j,i]
         
-        if hasattr(self,'mic'):
-            self.mic[use_sph] = mic
-        else: self.mic = {use_sph : mic}
-    
-    def parallel_MIC(self,use_sph='raw'):
-        """
-        Parallel calculation of MIC for an array of trajectories. It calls 
-        the function below it, scoop_mp, which is parallelizable.
-        """
-        # index list setup
-        inds = list(itertools.combinations_with_replacement(
-                    range(self.nodecount),2))
-        # takes correct data to pass to MIC
-        self.data['mic']= self.data[use_sph]
-        info = list(futures.map(self.scoop_mp,inds))
-        
-        # fill in a connectivity matrix
-        mic = np.zeros([self.nodecount,self.nodecount])
-        for i in range(len(info)):
-            mic[info[i][0],info[i][1]] = info[i][2]
-            mic[info[i][1],info[i][0]] = info[i][2]
-            
         if hasattr(self,'mic'):
             self.mic[use_sph] = mic
         else: self.mic = {use_sph : mic}
@@ -568,7 +494,7 @@ class network(object):
         subprocess.check_call(command)
         
         if delete_pngs is True:
-            print "Do the deletion it manually ha ha ha :("
+            print "Deletion must be run manually."
             
     def population_dwt(self,cells = 'all'):
         """ Performs a discrete wavelet transform on the population mean 
@@ -709,118 +635,6 @@ def detrend_hodrick_prescott(t,data,smoothing_parameter = None,
         detrended[:,i] = cyc
         
     return detrended
-    
-def mutual_information(ts1,ts2,max_lag,noverlap,window=None):
-    """
-    Mutual information function, set up the same way as migram.m
-    This is windowed, if you don't want it windowed then leave:
-        window = None
-    """
-    if window==None:
-        window = len(ts1)
-    
-    nints = np.fix((len(ts1)-noverlap)/(window-noverlap)) #interval count
-    L = range(int(-max_lag),int(max_lag+1)) #range of lags
-    C = np.zeros([2*max_lag+1, nints])
-    
-    #set up lagged arrays, as in migram.m
-    X = np.zeros([len(ts1),max_lag+1])
-    Y = np.zeros([len(ts2),max_lag+1])
-
-    for i in range(max_lag+1):
-        X[i:,i] = ts1[:len(ts1)-i]
-        Y[i:,i] = ts2[:len(ts2)-i]
-    X = np.fliplr(X)
-    
-    #Now, collect mutual informations
-    #-max lag : 0
-    ccount=0
-    Xi=np.zeros([window,nints])
-    Yi=np.zeros([window,nints])
-
-    for i in range(nints):
-        inds = i*(window-noverlap)
-        indf = inds+1*window
-        Yi[:,i] = (Y[inds:indf,0])
-    
-    for i in range(len(X[0,:])):
-        for j in range(nints):
-            inds = j*(window-noverlap)
-            indf = inds+1*window
-            Xi[:,j] = (X[inds:indf,i])
-        C[ccount,:] = MIcalc(Xi,Yi)
-        ccount=ccount+1
-        
-    #0 : max lag
-    Xi=np.zeros([window,nints])
-    Yi=np.zeros([window,nints])
-    for i in range(nints):
-        inds = i*(window-noverlap)
-        indf = inds+1*window
-        Xi[:,i] = (X[inds:indf,-1])
-
-    for i in range(1,len(Y[0,:]),1):
-        for j in range(nints):
-            inds = j*(window-noverlap)
-            indf = inds+1*window
-            Yi[:,j] = (Y[inds:indf,i])
-        
-        C[ccount,:] = MIcalc(Xi,Yi)
-        ccount=ccount+1
-    
-    nx = len(ts1)
-    t = np.arange(1,nx,nx/len(Xi[0,:])) #matching t in migram
-    return [C, L, t]
-
-
-def MIcalc(x,y,nbins=10):
-    """does the actual mutual information calculation"""
-    #scale the matrices to be from 0 to 1
-    #note: added 2e-15 values are to avoid division by zero errors
-    maxsX = np.max(x,axis=0)
-    minsX = np.min(x,axis=0)
-    rngX  = maxsX - minsX + 2e-15
-    x = np.nan_to_num((x-minsX)/(rngX))
-    
-    maxsY = np.max(y,axis=0)
-    minsY = np.min(y,axis=0)
-    rngY  = maxsY - minsY + 2e-15
-    y = np.nan_to_num((y-minsY)/(rngY))
-    
-    #separate into bins. let's have 20 bins..
-    #rounding fixes floating point error
-    x = np.floor(np.around(x,14)*nbins)+1
-    y = np.floor(np.around(y,14)*nbins)+1
-    
-    #now, calculate probabilities
-    Z = np.zeros(len(x[0,:]))
-    for i in range(len(x[0,:])):
-        Pxy = sparse.coo_matrix((np.ones(len(x[:,i])), (x[:,i],y[:,i])), 
-                                    shape=[np.max(x[:,i])+1,np.max(y[:,i])+1])
-
-        Px = Pxy.sum(axis=0)
-        Py = Pxy.sum(axis=1)
-        Pxy = Pxy/Pxy.sum()
-        Px = Px/Px.sum()
-        Py = Py/Py.sum()
-        
-        #Information theoretic entropies
-        Hx = -np.matrix.sum(np.nan_to_num(np.multiply(Px,np.log(Px+2e-15))))
-        Hy = -np.matrix.sum(np.nan_to_num(np.multiply(Py,np.log(Py+2e-15))))
-        Hxy = -np.matrix.sum(np.nan_to_num(np.multiply(Pxy.todense(),
-                                             np.log(Pxy.todense()+2e-15))))
-                             
-        MI = Hx + Hy - Hxy
-        #output the mutual info
-        Z[i] = MI
-    return Z
-
-def scoop_mi(inds, ts_data, max_lag, noverlap, window):
-    """
-    exists so you can call mutual information with a list of indicies,
-    and ultimately parallelize the calculation
-    """
-    pass
 
 def ipython_mp(data):
     """
@@ -828,9 +642,6 @@ def ipython_mp(data):
     function is parallelizable and only takes indexes as input.
     """
     return mp.minestats(data[:,0],data[:,1])['mic']
-
-def generate_trajectories(adjacency,tf=100,inc=0.05):
-    pass
 
 def ROC(adj, infer, ints = 1000):
     """
