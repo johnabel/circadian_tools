@@ -9,7 +9,6 @@ Network inference module for circadian systems.
 from __future__ import division
 import itertools
 import numpy  as np
-import scipy as scp
 from scipy import sparse
 from scipy import signal
 from scipy.interpolate import UnivariateSpline
@@ -19,6 +18,8 @@ import PlotOptions as plo
 import minepy as mp
 import numpy.random as random
 import networkx as nx
+import pywt
+
 from jha_utilities import corrsort
 
 from scoop import futures
@@ -26,13 +27,19 @@ from scoop import futures
 import pdb
 
 
-#class initiate with set of time series, cell count, adjacency matrix
-#can add class.mut_info, class.MIC, class.MIC.ROC?
+
 
 class network(object):
     """
     Class to analyze time series data and infer network connections.    
-    JH Abel    
+    JH Abel
+    
+    Things it can go:
+        detrend                     - hodrick-prescott, linear
+        infer                       - MIC, kirsten's MI (bad), corrsort
+        create adjacency matrices   - either input them or generate from MIC
+        find instantaneous phase    - either with hilbert transform, dwt
+        
     """
 
     def __init__(self, data, sph=None, t=None, loc=None):
@@ -51,6 +58,12 @@ class network(object):
                 self.t = {'raw': t}
                 self.sph = {'raw': 1/(t[1]-t[0])}
         
+        if (t is None and sph is not None):
+            # defining t from sph
+            t = np.arange(0,sph*len(data),sph).astype(float)
+            self.t = {'raw': t}
+
+        
         self.data = {'raw' : data}
         self.nodecount = len(data[0,:])
         
@@ -68,7 +81,7 @@ class network(object):
                 print "Location data type not recognized."
                 
     
-    def resample(self,des,sph = None):
+    def resample(self,des,sph = None, method = 'spline', s=0):
         """
         des is desired samples/hour, sph is data samples/hour
         This is always for downsampling, so that the simulated data will have
@@ -78,23 +91,45 @@ class network(object):
         here as well, summing the values between time points.
         
         We assume that samples are evenly spaced.
+        
+        Sum: adding counts to get an hourly count, assumed even number of sph
+             per each new sampling time
+        Spline: interpolating
         """
-
-        if sph is None:
-            sph = self.sph['raw']
-        self.sph['resample'] = des
-        #data_pre_fix = np.copy(self.data)
-        data_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),
-                                self.nodecount])
-        t_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),1])
-        for i in range(len(data_resample)):
-            data_resample[i,:] = np.sum(self.data['raw'][
-                    int(i*des/sph):int((1+i)*des/sph),:],axis=0)
-            t_resample[i] = self.t['raw'][int((i)*des/sph)]+sph
+        if method == 'sum':
+            if sph is None:
+                sph = self.sph['raw']
+            self.sph['resample'] = des
+            #data_pre_fix = np.copy(self.data)
+            data_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),
+                                    self.nodecount])
+            t_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),1])
+            for i in range(len(data_resample)):
+                data_resample[i,:] = np.sum(self.data['raw'][
+                        int(i*des/sph):int((1+i)*des/sph),:],axis=0)
+                t_resample[i] = self.t['raw'][int((i)*des/sph)]+sph
+                
+            self.data['resample'] = data_resample
+            self.t['resample'] = t_resample
             
-        self.data['resample'] = data_resample
-        self.t['resample'] = t_resample
-    
+        if method == 'spline':
+            if sph is None:
+                sph = self.sph['raw']
+            self.sph['resample'] = des
+            
+            t_resample = np.arange(self.t['raw'].min(),self.t['raw'].max(),des)
+            data_resample = np.zeros([len(t_resample),self.nodecount])
+            for i in xrange(self.nodecount):
+                spline = UnivariateSpline(self.t['raw'], 
+                                          self.data['raw'][:,i],
+                                          s=s)
+                data_resample[:,i] = spline(t_resample)
+            
+            self.t['resample'] = t_resample
+            self.data['resample'] = data_resample
+                
+            
+        
     def mutual_info(self,use_sph='raw'):
         """
         kirsten's MI
@@ -281,25 +316,29 @@ class network(object):
         pass
 
 
-    def detrend_constant(self,data='raw'):
+    def detrend(self,detrend='constant',data='raw', 
+                est_period = 24, smoothing_parameter = 100000):
         """
         detrends by subtracting a constant
-        """
-        detrended = detrend_constant(self.data[data])
-        self.data['detrend_cons'] = detrended
-    
-    def detrend_hodrick_prescott(self,data='raw',
-                                 smoothing_parameter = 100000):
-        """
+        
+        -or-
+        
         detrends using a hodrick-prescott filter. 
         data: which data set you want to h-p detrend. defaults to 'raw'
         smoothing_parameter: hp smoothing parameter, defaults to 10000
         """
-        detrended = detrend_hodrick_prescott(
-                self.data[data], smoothing_parameter = smoothing_parameter)            
-        
-        self.data['detrend_hp'] = detrended
-
+        if detrend == 'constant':
+            detrended = detrend_constant(self.data[data])
+            self.data['detrend_cons'] = detrended
+            
+        if detrend == 'hodrick':        
+            detrended = detrend_hodrick_prescott(
+                            self.t[data],
+                            self.data[data], 
+                            smoothing_parameter = smoothing_parameter, 
+                            est_period = est_period
+                            )            
+            self.data['detrend_hp'] = detrended
 
 
     def hilbert_transform(self,detrend='detrend_cons'):
@@ -341,23 +380,22 @@ class network(object):
         
         self.nx_graph = G
                 
-    def networkx_plot(self,ax=None, colors=None, invert_y=False):
+    def networkx_plot(self,ax=None, colors=None, invert_y=False, **kwargs):
         """plots a networkx graph"""
         
         plo.PlotOptions()
         try:
             G = self.nx_graph
         except: 
-            print "Networkx graph must be generated before it is plotted."
+            print "ERROR: Networkx graph must be generated before it is plotted."
+            return
             
         if ax is None:
             ax = plt.subplot()
-        if colors == None:
-            colors = 'f'
-
+    
         
         #Turn off the ticks
-        plt.tick_params(\
+        ax.tick_params(\
                 axis='both',       # changes apply to the x-axis
                 which='both',      # both major and minor ticks are affected
                 bottom='off',      # ticks along the bottom edge are off
@@ -366,14 +404,15 @@ class network(object):
                 left='off',
                 right='off',
                 labelleft='off')
+                
         if invert_y==True:
             plt.gca().invert_yaxis()
+            
         nx.draw_networkx_nodes(G, 
                                pos=self.locations,
-                               ax = ax,
                                node_size=10,
-                               node_color=colors)
-        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1)
+                               node_color=colors, ax=ax, **kwargs)
+        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1,ax=ax,**kwargs)
         
         
     def bioluminescence_to_spline(self,sph='raw',s=0):
@@ -418,7 +457,7 @@ class network(object):
         
         for i in xrange(self.nodecount):
             if colors is None:
-                color = 'k'
+                color = 'gray'
             else: color= colors[i]
             ax.plot(t, spline[i].derivative(derivative)(t), alpha=alpha,
                     color=color)
@@ -467,9 +506,172 @@ class network(object):
             print 'The average shortest path length is: ',
             self.l_avg = nx.average_shortest_path_length(self.nx_graph)
             print nx.average_shortest_path_length(self.nx_graph)
-        
+    
+    def generate_bioluminescence_gif(self, name = '', delete_pngs = True):
+        """ uses imagemagick to make a gif of the bioluminescence oscillating.
+        requires locations be defined. """
+        import subprocess
 
         
+        max_x = np.max(np.array(self.locations.values())[:,0])
+        min_x = np.min(np.array(self.locations.values())[:,0])
+        
+        max_y = np.max(np.array(self.locations.values())[:,1])
+        min_y = np.min(np.array(self.locations.values())[:,1])
+        
+        max_luminescence = np.max(self.data['raw'])
+        min_luminescence = np.min(self.data['raw'])
+        
+        map = np.zeros([max_x-min_x+1,max_y-min_y+1])
+        
+        for ti in xrange(len(self.data['raw'])):
+            time = self.t['raw'][ti]
+            print time
+            
+            for ci in xrange(self.nodecount):
+                map[self.locations[ci][0]-min_x,self.locations[ci][1]-min_y] = \
+                                    self.data['raw'][ti,ci]
+            map = (map)/(max_luminescence-min_luminescence)
+            
+            plo.PlotOptions()
+            plt.figure()
+            ax = plt.subplot(111)
+            colb = ax.pcolormesh(map,cmap = 'RdBu_r',vmax=1.00,vmin=0.00)
+            ax.tick_params(\
+                axis='both',       # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom='off',      # ticks along the bottom edge are off
+                top='off',         # ticks along the top edge are off
+                labelbottom='off',
+                left='off',
+                right='off',
+                labelleft='off')
+            ax.set_title('Time: '+'{0:03d}'.format(time)+' hr')
+            plt.colorbar(colb)
+            ax.set_xlim([0,max_y-min_y+1])
+            ax.set_ylim([0,max_x-min_x+1])            
+            fig = "frame_%04d"%(ti)
+            plt.savefig('temp/'+fig+'.png',format='png')
+            plt.clf()
+            
+        command = ('convert',
+           'temp/frame*png',
+           '+dither',
+           '-layers',
+           'Optimize',
+           '-colors',
+           '256',
+           '-depth',
+           '8',
+           'temp/bioluminescence'+name+'.gif')
+
+        subprocess.check_call(command)
+        
+        if delete_pngs is True:
+            print "Do the deletion it manually ha ha ha :("
+            
+    def population_dwt(self,cells = 'all'):
+        """ Performs a discrete wavelet transform on the population mean 
+        bioluminescence.
+        cells: indexes of all cells to perform this on. if cells = 'all',
+               all cells are used
+        bins: number of dwt bins
+        """
+        if cells == 'all':
+            cells = np.arange(self.nodecount)
+        
+        
+    def population_dft(self,cells = 'all', window = 'hamming',
+                       data = 'raw'):
+        """ 
+        Performs a discrete fourier transform on the population mean 
+        bioluminescence. Uses a hamming window by default to scale data.
+        cells: indexes of all cells to perform this on. if cells = 'all',
+               all cells are used
+        
+        """
+
+        if cells == 'all':
+            cells = np.arange(self.nodecount)
+        fdata = self.data[data][:,cells].mean(1)
+
+        time_step = 1.0/self.sph[data]
+        
+        if window == 'hamming':
+            fdata = fdata*signal.hamming(len(fdata))
+        
+        freqs = np.fft.fftfreq(fdata.size, time_step)
+        
+        power = np.abs(np.fft.fft(fdata))**2
+        
+        return_dict = {
+                        'cells':cells,
+                        'fdata':fdata,
+                        'freqs':freqs,
+                        'power':power
+                        }
+                        
+        self.dft_population_dict = return_dict
+    
+    def sc_dft(self,cells='all', window = 'hamming',
+               data = 'raw', remove_DC = True):
+        """        
+        Performs a discrete fourier transform on the single cell 
+        bioluminescence. Uses a hamming window by default to scale data.
+        cells: indexes of all cells to perform this on. if cells = 'all',
+               all cells are used
+        """
+        if cells == 'all':
+            cells = np.arange(self.nodecount)
+        fdata = self.data[data][:,cells]
+        
+        if window == 'hamming':
+            fdata = ((fdata.T)*signal.hamming(len(fdata))).T
+        
+        time_step = 1.0/self.sph[data]
+        freqs = np.fft.fftfreq(fdata.shape[0], time_step)
+        
+        powers = np.zeros([freqs.shape[0],len(cells)])
+        
+        for i in xrange(len(cells)):
+            if remove_DC == True: fdata[:,i]=fdata[:,i] - fdata[:,i].mean() 
+            powers[:,i] = np.abs(np.fft.fft(fdata[:,i]))**2
+        
+        return_dict = {
+                        'cells':cells,
+                        'fdata':fdata,
+                        'freqs':freqs,
+                        'powers':powers
+                        }
+        self.dft_single_cell_dict = return_dict
+    
+    def power_circ_bin(self, low_per = 18.0, high_per = 32.0):
+        """
+        Uses sc dft to identify the power in each cell's circadian bin.
+        DC (frq = 0 component) should be removed.
+        """
+        if not 'cells' in self.dft_single_cell_dict:
+            print "DFT has not been performed."
+            return
+        cells = self.dft_single_cell_dict['cells']
+        freqs = self.dft_single_cell_dict['freqs']
+        low_freq = 1.0/high_per
+        high_freq = 1.0/low_per
+        
+        circ_frac = np.zeros(len(cells))
+        
+        for i in range(len(cells)):
+            powers = self.dft_single_cell_dict['powers'][:,i]
+            total_power = powers[freqs>0].sum()
+            sum_low = powers[freqs>low_freq].sum()
+            sum_high = powers[freqs>high_freq].sum()
+            circ_power = sum_low-sum_high
+            circ_frac[i] = circ_power/total_power
+        
+        self.dft_single_cell_dict['circ_bin_power'] = circ_frac
+        
+        
+
 #if you want to scoop your inference, import scoop and write its own function
 #in your program
 
@@ -486,12 +688,20 @@ def detrend_constant(data):
     
     return detrended
 
-def detrend_hodrick_prescott(data,smoothing_parameter = 100000):
+def detrend_hodrick_prescott(t,data,smoothing_parameter = None, 
+                             est_period = 24.0):
     """
-    detrends using a hodrick-prescott filter
+    detrends using a hodrick-prescott filter.
+    smoothing_parameter previously used was 10000
     """
     detrended = np.zeros(data.shape)
     nodecount = data.shape[1]
+    
+    if smoothing_parameter == None:
+        # As recommended by Ravn, Uhlig 2004, a calculated empirically 
+        num_periods = (t.max() - t.min())/est_period
+        points_per_period = len(t)/num_periods
+        smoothing_parameter = 0.05*points_per_period**4
     
     for i in xrange(nodecount):
         cyc,trend = filters.hpfilter(data[:,i],
@@ -675,11 +885,55 @@ def ROC(adj, infer, ints = 1000):
         roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
     return roc
 
+def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
+    """ Function to break down the data in y into multiple frequency
+    components using the discrete wavelet transform """
+
+    lenx = len(x)
+
+    # Restrict to the maximum allowable number of bins
+    if lenx < 2**nbins: nbins = int(np.floor(np.log(len(x))/np.log(2)))
+
+    dx = x[1] - x[0]
+    period_bins = [(2**j*dx, 2**(j+1)*dx) for j in xrange(1,nbins+1)]
+
+    details = pywt.wavedec(y, wavelet, mode, level=nbins)
+    cA = details[0]
+    cD = details[1:][::-1]
+
+    # Recover the individual components from the wavelet details
+    rec_d = []
+    for i, coeff in enumerate(cD):
+        coeff_list = [None, coeff] + [None] * i
+        rec_d.append(pywt.waverec(coeff_list, wavelet)[:lenx])
+
+    rec_a = pywt.waverec([cA] + [None]*len(cD), wavelet)[:lenx]
+
+    return {
+        'period_bins' : period_bins,
+        'components' : rec_d,
+        'approximation' : rec_a,
+    }
+
+def periodogram(x, y, period_low=1, period_high=35, res=200):
+    """ calculate the periodogram at the specified frequencies, return
+    periods, pgram """
+    
+    periods = np.linspace(period_low, period_high, res)
+    # periods = np.logspace(np.log10(period_low), np.log10(period_high),
+    #                       res)
+    freqs = 2*np.pi/periods
+    try: pgram = signal.lombscargle(x, y, freqs)
+    # Scipy bug, will be fixed in 1.5.0
+    except ZeroDivisionError: pgram = signal.lombscargle(x+1, y, freqs)
+    return periods, pgram
 
 
-
-
-
+def estimate_period(x, y, period_low=1, period_high=100, res=200):
+    """ Find the most likely period using a periodogram """
+    periods, pgram = periodogram(x, y, period_low=period_low,
+                                 period_high=period_high, res=res)
+    return periods[pgram.argmax()]
 
 
 
@@ -713,16 +967,8 @@ if __name__ == "__main__":
     net = network(data,t=time)
     
     # changes samples per hour
-    net.resample(2)
-    
-    net.parallel_MIC(use_sph='resample')
-    net.create_adjacency(sph='resample',thresh=0.50)
-    
-    plt.figure()
-    plt.pcolormesh(net.mic['resample'])
-    plt.figure()
-    plt.pcolormesh(net.adj['0.50'])
-    
+    net.resample(0.3204)
+
     
     
     

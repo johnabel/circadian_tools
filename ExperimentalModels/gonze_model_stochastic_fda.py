@@ -80,11 +80,13 @@ def gonze_model_ode():
     ode = [[]]*neq
     
     ode[0] = v1*K1**n/(K1**n + Z1**n) \
-             - v2*(X1+amp*np.sin(freq*t))/(K2+(X1+amp*np.sin(freq*t))) \
+             - v2*(X1+amp*np.sin(2*3.14159*freq*t))/(K2+(X1+amp*np.sin(2*3.14159*freq*t))) \
              +vc*K*((V1+V2)/2)/(Kc +K*(V1+V2)/2) + L 
-    ode[1] = k3*(X1+amp*np.sin(freq*t)) - v4*Y1/(K4+Y1)
+             
+    ode[1] = k3*(X1+amp*np.sin(2*3.14159*freq*t)) - v4*Y1/(K4+Y1)
+    
     ode[2] = k5*Y1 - v6*Z1/(K6+Z1)
-    ode[3] = k7*(X1+amp*np.sin(freq*t)) - v8*V1/(K8+V1)
+    ode[3] = k7*(X1+amp*np.sin(2*3.14159*freq*t)) - v8*V1/(K8+V1)
     
     ode[4] = v1*K1**n/(K1**n + Z2**n) \
              - v2*X2/(K2+X2) \

@@ -16,7 +16,7 @@ import matplotlib
 # from CommonFiles.mimic_alpha import colorAlpha_to_rgb
 
 
-def PlotOptions(uselatex=True):
+def PlotOptions(uselatex=False):
 
     import matplotlib
     import matplotlib.axis, matplotlib.scale 

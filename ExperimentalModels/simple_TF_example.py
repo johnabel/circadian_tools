@@ -27,8 +27,7 @@ npa  = 5
 
 param = [  1.0, 1.0, 1.0,   0, 0
            ]
-y0in = np.array([  3.25  ,  13.8125])
-period = 30.27
+y0in = np.array([  1.00  ,  1.00])
 
 def simple_model_ode():
     
@@ -45,7 +44,7 @@ def simple_model_ode():
     amp = cs.ssym('amp')
     freq= cs.ssym('freq')
     
-    param_set = cs.vertcat([K0, K1,K2,amp,freq])
+    param_set = cs.vertcat([K0, K1, K2,amp,freq])
 
     # Time
     t = cs.ssym('t')
@@ -79,7 +78,7 @@ class simple_gillespy_model(gsp.Model):
     
     def __init__(self, ode_model=simple_model_ode(),
                  parameter_values=param, y0_values=y0in,
-                 volume=500):
+                 volume=100.0):
         
         #setup, attaching the ode model
         self.ode_model = ode_model
@@ -94,19 +93,38 @@ class simple_gillespy_model(gsp.Model):
                         for i in xrange(self.npa)]
         
         #Initialize the model
-        gsp.Model.__init__(self,name='simple')
+        gsp.Model.__init__(self,name='simple',volume=volume)
         
         # Parameters
-        for i in xrange(self.npa):
-            self.add_parameter(gsp.Parameter(name=plabels[i],
-                                             expression=parameter_values[i]))                 
+        K0 = gsp.Parameter(name='K0',expression=parameter_values[0])
+        K1 = gsp.Parameter(name='K1',expression=parameter_values[1])
+        K2 = gsp.Parameter(name='K2',expression=parameter_values[2])
+        amp = gsp.Parameter(name='amp',expression=parameter_values[3])
+        freq = gsp.Parameter(name='freq',expression=parameter_values[4])
+        
+        self.add_parameter([K0, K1, K2, amp, freq])
+        
         # Species
-        for i in xrange(self.neq):
-            self.add_species(gsp.Species(name=ylabels[i],
-                                initial_value = int(volume*y0_values[i])))
+        x1 = gsp.Species(name='x1',initial_value = int(volume*y0_values[0]))
+        x2 = gsp.Species(name='x2',initial_value = int(volume*y0_values[0]))
+        t = gsp.Species(name='t',initial_value=0)        
+        
+        self.add_species([x1,x2,t])
+        
         # Reactions
-
-
+        r1 = gsp.Reaction(name='formation of x1',
+                          reactants = {},
+                          products={x1:1},
+                          propensity_function='K0*vol')
+                          
+        r2 = gsp.Reaction(name='degradation of x1', reactants={x1:1}, 
+                          propensity_function = 'K2*(x1 + vol*amp*sin(2*3.14159*freq*t))')
+        
+        r3 = gsp.Reaction(name='formation of x2', products={x2:1},
+                          propensity_function = 'K1*(x1 + vol*amp*sin(2*3.14159*freq*t))')
+        r4 = gsp.Reaction(name='degradation of x2',reactants={x2:1}, rate = K2)
+        r5 = gsp.Reaction(name='time',products={t:1},propensity_function ='1.0')
+        self.add_reaction([r1,r2,r3,r4,r5])
 
 
 if __name__ == "__main__":
