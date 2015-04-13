@@ -10,7 +10,7 @@ from __future__ import division
 import itertools
 import numpy  as np
 from scipy import sparse
-from scipy import signal
+from scipy import signal, optimize
 from scipy.interpolate import UnivariateSpline
 import statsmodels.tsa.filters as filters
 import matplotlib.pyplot as plt
@@ -243,7 +243,8 @@ class network(object):
 
 
     def detrend(self,detrend='constant',data='raw', 
-                est_period = 24, smoothing_parameter = 100000):
+                est_period = 24, smoothing_parameter = 100000,
+                dwt_bin_desired = 3):
         """
         detrends by subtracting a constant
         
@@ -265,7 +266,14 @@ class network(object):
                             est_period = est_period
                             )            
             self.data['detrend_hp'] = detrended
-
+            
+        if detrend == 'dwt':
+            detrended = detrend_dwt(
+                            self.t[data],
+                            self.data[data],
+                            dwt_bin_desired
+                            )
+            self.data['detrend_dwt'] = detrended
 
     def hilbert_transform(self,detrend='detrend_cons'):
         """applys a hilbert transform to determine instantaneous phase.
@@ -275,7 +283,7 @@ class network(object):
         try: hil_data = self.data[detrend]
         except: 
             print "Constant detrend being used in Helbert transform."
-            self.detrend_constant()
+            self.detrend()
             hil_data = self.data['detrend_cons']
         
         # setup phase array        
@@ -291,55 +299,7 @@ class network(object):
     def unwrap_theta(self,discont=2.5):
         """unwraps theta into theta_unwrap"""
         self.theta_unwrap = np.unwrap(self.theta,discont=discont,axis=0)
-        
-    
-    def networkx_graph(self,adj=None):
-        """creates a networkx graph object for further analysis"""
-        
-        # initialize the object
-        G = nx.Graph()
-        G.add_nodes_from(range(self.nodecount))
-        
-        if adj is not None:
-            edge_list = np.vstack(np.where(self.adj[adj]!=0)).T
-            G.add_edges_from(edge_list)
-        
-        self.nx_graph = G
-                
-    def networkx_plot(self,ax=None, colors=None, invert_y=False, **kwargs):
-        """plots a networkx graph"""
-        
-        plo.PlotOptions()
-        try:
-            G = self.nx_graph
-        except: 
-            print "ERROR: Networkx graph must be generated before it is plotted."
-            return
-            
-        if ax is None:
-            ax = plt.subplot()
-    
-        
-        #Turn off the ticks
-        ax.tick_params(\
-                axis='both',       # changes apply to the x-axis
-                which='both',      # both major and minor ticks are affected
-                bottom='off',      # ticks along the bottom edge are off
-                top='off',         # ticks along the top edge are off
-                labelbottom='off',
-                left='off',
-                right='off',
-                labelleft='off')
-                
-        if invert_y==True:
-            plt.gca().invert_yaxis()
-            
-        nx.draw_networkx_nodes(G, 
-                               pos=self.locations,
-                               node_size=10,
-                               node_color=colors, ax=ax, **kwargs)
-        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1,ax=ax,**kwargs)
-        
+
         
     def bioluminescence_to_spline(self,sph='raw',s=0):
         """uses a univariate cubic spline interpolant on single-cell 
@@ -495,16 +455,6 @@ class network(object):
         
         if delete_pngs is True:
             print "Deletion must be run manually."
-            
-    def population_dwt(self,cells = 'all'):
-        """ Performs a discrete wavelet transform on the population mean 
-        bioluminescence.
-        cells: indexes of all cells to perform this on. if cells = 'all',
-               all cells are used
-        bins: number of dwt bins
-        """
-        if cells == 'all':
-            cells = np.arange(self.nodecount)
         
         
     def population_dft(self,cells = 'all', window = 'hamming',
@@ -595,9 +545,133 @@ class network(object):
             circ_frac[i] = circ_power/total_power
         
         self.dft_single_cell_dict['circ_bin_power'] = circ_frac
+    
+    def ls_periodogram(self, cells='all', data = 'raw', 
+                       period_low=None, period_high=None, res=None, norm=True):
+        """ calculates the lomb-scargle normalized periodogram for 
+        bioluminescence of individual cells. creates and attaches array of 
+        frequencies, pgram magnitudes, and significance."""
+        
+        if period_low is None:
+            nyquist_freq = self.sph[data]/2
+            period_low = 1/nyquist_freq
+        if period_high is None:
+            period_high = max(self.t['raw'])/4
+        if res is None:
+            res = (period_high-period_low)*10
+        
+        # select cell traces
+        if cells == 'all':
+            cells = np.arange(self.nodecount)
+        lsdata = self.data[data][:,cells]
+        
+        pgrams = np.zeros([res,cells.size])        
+        sigs = np.zeros([res,cells.size])
+        
+        for i in range(len(cells)):
+            cell_pers, cell_pgram, cell_sig = \
+                                periodogram(self.t[data], lsdata[:,i], 
+                                            period_low = period_low,
+                                            period_high = period_high, 
+                                            res = res, norm = True)
+            pgrams[:,i] = cell_pgram
+            sigs[:,i] = cell_sig
+        
+        self.periodogram = {}
+        self.periodogram['cells'] = cells
+        self.periodogram['periods'] = cell_pers
+        self.periodogram['pgrams'] = pgrams
+        self.periodogram['sigs'] = sigs
         
         
+    def ls_rhythmic_cells(self, p = 0.01, circ_low=18, circ_high=32):
+        """determines which cells are rhythmic from the lomb-scargle
+        periodogram, by comaparing significance to our p-value"""
+        
+        try:
+            cells = self.periodogram['cells']
+            periods = self.periodogram['periods']
+            pgrams = self.periodogram['pgrams']
+        except:
+            print "ERROR: ls_periodogram must be calculated before testing."
+            return
+        
+        period_inds = np.where(
+                        np.logical_and(circ_low <= self.periodogram['periods'], 
+                                       self.periodogram['periods'] <= circ_high))
+        
+        # find the critical z-score (= pgram score)
+        z = -np.log(1-(1-p)**(1/len(self.t['raw'])))
+        
+        rhythmic_cells = np.zeros(len(cells))
+        cell_periods = np.zeros(len(cells))
+        for i in range(len(cells)):
+            pgrams_in_range = pgrams[period_inds,i]
+            if (pgrams_in_range > z).any():
+                # greatest peak 
+                #if np.max(pgrams_in_range) >= np.max(pgrams[:,i])-0.001: #tolerance
+                # end greatest peak                    
+                rhythmic_cells[i] = 1
+                cell_periods[i] = periods[period_inds[0][np.argmax(pgrams_in_range[0])]]
+        
+        #period_of_oscillatory_cells = np.argma
+        self.periodogram['rhythmic_'+str(p)] = rhythmic_cells
+        self.periodogram['zcrit_p'+str(p)] = z
+        self.periodogram['cell_periods'] = cell_periods
+        
+        
+    def networkx_graph(self,adj=None):
+        """creates a networkx graph object for further analysis"""
+        
+        # initialize the object
+        G = nx.Graph()
+        G.add_nodes_from(range(self.nodecount))
+        
+        if adj is not None:
+            edge_list = np.vstack(np.where(self.adj[adj]!=0)).T
+            G.add_edges_from(edge_list)
+        
+        self.nx_graph = G
+    
+    def networkx_plot(self,ax=None, colors=None, invert_y=False, **kwargs):
+        """plots a networkx graph"""
+        
+        plo.PlotOptions()
+        try:
+            G = self.nx_graph
+        except: 
+            print "ERROR: Networkx graph must be generated before it is plotted."
+            return
+            
+        if ax is None:
+            ax = plt.subplot()
+    
+        
+        #Turn off the ticks
+        ax.tick_params(\
+                axis='both',       # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom='off',      # ticks along the bottom edge are off
+                top='off',         # ticks along the top edge are off
+                labelbottom='off',
+                left='off',
+                right='off',
+                labelleft='off')
+                
+        if invert_y==True:
+            plt.gca().invert_yaxis()
+            
+        nx.draw_networkx_nodes(G, 
+                               pos=self.locations,
+                               node_size=10,
+                               node_color=colors, ax=ax, **kwargs)
+        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1,ax=ax,**kwargs)
+        
+    def pcolor_plot(self,ax=None,**kwargs):
+        pass
+    
 
+        
 #if you want to scoop your inference, import scoop and write its own function
 #in your program
 
@@ -696,6 +770,21 @@ def ROC(adj, infer, ints = 1000):
         roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
     return roc
 
+def detrend_dwt(t, data, bin_num):
+    """Uses a dwt to detrend into the selected bin range"""
+    
+    # TODO need some conversion ebtween x and t to get the bins situated correctly
+
+    data_dict = np.zeros([len(dwt_breakdown(t, data[:,0])['components'][bin_num]),len(data[0,:])])
+    
+    print "Discrete wavelet detrend to isolate periods on:",
+    print dwt_breakdown(t, data[:,0])['period_bins'][bin_num]
+    for i in xrange(len(data[0,:])):
+        
+        data_dict[:,i] = dwt_breakdown(t, data[:,i])['components'][bin_num]
+    
+    return data_dict
+
 def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
     """ Function to break down the data in y into multiple frequency
     components using the discrete wavelet transform """
@@ -726,9 +815,9 @@ def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
         'approximation' : rec_a,
     }
 
-def periodogram(x, y, period_low=1, period_high=35, res=200):
+def periodogram(x, y, period_low=2, period_high=35, res=200, norm=True):
     """ calculate the periodogram at the specified frequencies, return
-    periods, pgram """
+    periods, pgram. if norm = True, normalized pgram is returned """
     
     periods = np.linspace(period_low, period_high, res)
     # periods = np.logspace(np.log10(period_low), np.log10(period_high),
@@ -737,7 +826,17 @@ def periodogram(x, y, period_low=1, period_high=35, res=200):
     try: pgram = signal.lombscargle(x, y, freqs)
     # Scipy bug, will be fixed in 1.5.0
     except ZeroDivisionError: pgram = signal.lombscargle(x+1, y, freqs)
-    return periods, pgram
+    
+    # significance (see press 1994 numerical recipes, p576)
+    
+    
+    if norm == True:
+        var = np.var(y)
+        pgram_norm = pgram/var
+        significance =  1- (1-np.exp(-pgram_norm))**len(x)
+        return periods, pgram_norm, significance
+    else:
+        return periods, pgram
 
 
 def estimate_period(x, y, period_low=1, period_high=100, res=200):
@@ -746,9 +845,53 @@ def estimate_period(x, y, period_low=1, period_high=100, res=200):
                                  period_high=period_high, res=res)
     return periods[pgram.argmax()]
 
+def phase_plot_polar(phases, ax=None, color='f', **kwargs):
+    """
+    Makes a basic polar plot of circadian phases. Really not very difficult.
+    """
+    if ax is None:
+        ax = plt.subplot(polar='True')
+    
+    ax.set_theta_zero_location('N')
+    ax.set_theta_direction(-1)
+    
+    max_radii = 20.0
+    N = 20
+    bottom = 0.0
+    max_height = 1.5
+    rmax=1.5
+    
+    theta = np.linspace(-np.pi, np.pi, N, endpoint=True)
 
-
-
+    radii = np.zeros(theta.shape)
+    for i in range(len(radii)-1):
+        radii[i] = max_height*np.sqrt(
+            np.all([phases < theta[i+1], phases > theta[i]], axis=0).sum())/max_radii
+    
+    width = (2*np.pi) / N
+    
+    bars = ax.bar(theta, radii, width=width, bottom=bottom)
+    for r, bar in zip(radii, bars):
+        bar.set_facecolor(color)
+        bar.set_alpha(0.8)
+    
+    #ax00.plot([0,pre_20_ang],[0,0.5*pre_20_len],color='k')
+    
+    ax.axes.spines['polar'].set_visible(False)
+    ax.set_yticks([])
+    #ax00.set_xticks([0,np.pi/2,np.pi,np.pi*3/2])
+    ax.set_yticklabels([])
+    ax.set_xticklabels(['0','','6','','12','','18',''])
+    
+def radius_phase(phases, cells='all'):
+    """ returns radius, phase, number of cells"""
+    
+    if cells == 'all':
+            cells = np.arange(self.nodecount)
+            
+    m_post_0 = (1/len(phases[0,:]))*np.sum(np.exp(1j*phases[0,:]))
+    post_0_len = np.abs(m_post_0)
+    post_0_ang = np.angle(m_post_0)
 
 
 
