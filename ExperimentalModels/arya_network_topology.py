@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 EqCount = 3
 ParamCount = 13
-modelversion='state3'
+modelversion='arya'
 
 cellcount=100
 
@@ -109,7 +109,7 @@ def ODEmodel():
     fn = cs.SXFunction(cs.daeIn(t=t, x=y, p=paramset),
                        cs.daeOut(ode=ode))
     
-    fn.setOption("name","SDS16")
+    fn.setOption("name","arya")
     
     return fn
     
@@ -239,14 +239,36 @@ if __name__=='__main__':
     
     tf=200
     inc = 0.05
-    adjacency = np.genfromtxt('/home/john/Desktop/adj_matrix_scale_free_100.csv',delimiter=',')[1:,:]
-    adjacency2 = adjacency.T
     
+    #watts-strogatz beta model
+    beta = 0.2
+    
+    adjacency = np.zeros(cellcount)
+    adjacency = np.diag(np.ones(cellcount-1),1) + np.diag(np.ones(cellcount-2),2)
+    adjacency[-1,0]=1
+    adjacency[-1,1]=1
+    adjacency[-2,0]=1
+    
+    ring = np.copy(adjacency)
+    locs = np.where(adjacency>0) #locations of connections
+    
+    #find where we should rewire
+    rewire = (np.random.rand(len(locs[0])) <= beta)
+    for i in xrange(len(rewire)):
+        if rewire[i] == True:
+            #remove conn1
+            adjacency[locs[0][i],locs[1][i]] = 0
+            adjacency[np.random.randint(cellcount),locs[1][i]] = 1
+    
+    plt.imshow(ring)
+    plt.figure()
+    plt.imshow(adjacency)
+    pdb.set_trace()
     SSAnet,state_names,param_names = SSAnetwork(ODEmodel(),
-                                                    y0in,param,adjacency2)
+                                                    y0in,param,adjacency)
     
 
-    traj = stk.stochkit(SSAnet,job_id='threestate',t=tf,
+    traj = stk.stochkit(SSAnet,job_id='beta0.1_network',t=tf,
                                number_of_trajectories=1,increment=inc,
                                seed=11)
     plt.plot(traj[0][:,1:])

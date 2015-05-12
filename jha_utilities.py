@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import (splrep, splint, fitpack, splev,
                                UnivariateSpline, dfitpack,
                                InterpolatedUnivariateSpline)
-
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.pyplot as plt
+from ColorMapCreator import ColorMapCreator
 
 def roots(data,times=None):
     """
@@ -94,6 +96,42 @@ def bode(G,f=np.arange(.01,100,.01),desc=None,color=None):
 
     return mag, phase
 
+
+def cmap_br(RGB1 = 255*np.array([0.894,0.102,0.110]), 
+             RGB2 = 255*np.array([0.216,0.494,0.722]),numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cm = cmc.matplotlibColorMap()
+     return cm
+
+def cmap_rb(RGB2 = 255*np.array([0.894,0.102,0.110]), 
+             RGB1 = 255*np.array([0.216,0.494,0.722]),numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cm = cmc.matplotlibColorMap()
+     return cm
+
+def cmap_rpb(RGB2 = 255*np.array([0.894,0.102,0.110]), 
+             RGB1 = 255*np.array([0.216,0.494,0.722]),
+                RGB3=np.array([152,178,163]), numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cma = cmc.colorMapArray3(RGB3)
+     
+     return cma
+     
 
 if __name__ == "__main__":
 

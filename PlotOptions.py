@@ -62,19 +62,20 @@ def PlotOptions(uselatex=True):
     
     #lighter
     matplotlib.colors.ColorConverter.colors['fl'] = \
-            (153/255, 209/255,255/255)
+            (166/255, 206/255,227/255)
     matplotlib.colors.ColorConverter.colors['hl'] = \
-            (255/255, 106/255, 107/255)
+            (251/255, 154/255, 153/255)
     matplotlib.colors.ColorConverter.colors['il'] = \
-            (186/255, 1.000,184/255)
+            (178/255, 223/255,138/255)
     matplotlib.colors.ColorConverter.colors['jl'] = \
-            (248/255, 199/255, 1.00)
+            (202/255, 178/255, 214/255)
     matplotlib.colors.ColorConverter.colors['ll'] = \
-            (255/255, 173/255, 110/255)
+            (253/255, 191/255, 111/255)
             
     if uselatex:
         matplotlib.rc('text', usetex=True)
         matplotlib.rc('font', family='serif')
+            
         
 
 # Padding for formatting figures using tight_layout
