@@ -200,7 +200,8 @@ class network(object):
         for i in range(len(inds)):
             mic[inds[i][0],inds[i][1]] = info[i]
             mic[inds[i][1],inds[i][0]] = info[i]
-            
+        
+        np.fill_diagonal(mic,0)
         if hasattr(self,'mic'):
             self.mic[use_data] = mic
         else: self.mic = {use_data : mic}
@@ -243,8 +244,9 @@ class network(object):
 
 
     def detrend(self,detrend='constant',data='raw', 
-                est_period = 24, smoothing_parameter = 100000,
-                dwt_bin_desired = 3):
+                est_period = 24, smoothing_parameter = None,
+                dwt_bin_desired = 3,
+                window = 24.0):
         """
         detrend='constant'
         detrends by subtracting a constant
@@ -254,13 +256,18 @@ class network(object):
         detrend='hodrick'
         detrends using a hodrick-prescott filter. 
         data: which data set you want to h-p detrend. defaults to 'raw'
-        smoothing_parameter: hp smoothing parameter, defaults to 10000
+        smoothing_parameter: hp smoothing parameter, defaults to 100000
         
         -or-
         
         detrend='dwt'
         detrends using a DWT. select which bin you want out of it. For sph=1,
         this is the third bin
+        
+        -or-
+        
+        detrend='moving_mean'
+        detrends using a moving mean subtraction. give the mean 
         """
         if detrend == 'constant':
             detrended = detrend_constant(self.data[data])
@@ -274,6 +281,8 @@ class network(object):
                             est_period = est_period
                             )            
             self.data['detrend_hp'] = detrended
+            self.t['detrend_hp'] = self.t['raw']
+            self.sph['detrend_hp'] = self.sph['raw']
         
         if detrend == 'dwt':
             detrended = detrend_dwt(
@@ -282,6 +291,15 @@ class network(object):
                             dwt_bin_desired
                             )
             self.data['detrend_dwt'] = detrended
+        
+        if detrend == 'moving_mean':
+            detrended = detrend_moving_mean(
+                            self.data[data],
+                            window
+                            )
+            self.data['detrend_mm'] = detrended
+            self.t['detrend_mm'] = self.t[data][:len(detrended)]
+            self.sph['detrend_mm'] = self.sph[data]
 
     def hilbert_transform(self,detrend='detrend_cons', cells='all'):
         """applys a hilbert transform to determine instantaneous phase.
@@ -493,7 +511,6 @@ class network(object):
                                     self.data['raw'][ti,ci]
             map = (map)/(max_luminescence-min_luminescence)
             
-            plo.PlotOptions()
             plt.figure()
             ax = plt.subplot(111)
             colb = ax.pcolormesh(map,cmap = 'RdBu_r',vmax=1.00,vmin=0.00)
@@ -667,18 +684,40 @@ class network(object):
         self.periodogram['sigs'] = sigs
     
 
-    def find_peaktimes(self, data='raw', t='raw', tstart=0, tend=24, order=5):
+    def find_peaktimes(self, data='raw', t='raw', tstart=0, tend=24, order=5, 
+                       cells='all', spline = False):
         """ finds and returns list of peaks between tstart and tend using 
         the scipy signal argrelmax function
+        
+        if spline=True, then we represent the data as an interpolating spline
+        then find the peak at higher resolution. it makes no sense to use a 
+        spline with raw data for the most part.        
+        
         NOTE: can only currently identify a single peaktime, 0 and 2+ peaks
         return a peaktime of 0"""
         
+        if cells=='all':
+            cells = range(self.nodecount)
+            
+        if spline == True:
+            self.bioluminescence_to_spline(data=data)
+            step = 0.01
+            
         ptimes_ref = np.zeros(self.nodecount)
-        for i in xrange(self.nodecount):
-            inds_ref = signal.argrelmax(self.data[data][tstart:tend,i],
-                                        order=order)[0]
-            if len(inds_ref)==1:
-                ptimes_ref[i] = self.t[t][inds_ref+tstart]
+        for i in cells:
+            if spline==True:
+                # select a spline representation of the data
+                cell_spline = self.spline_dict[data][i]
+                spline_t = np.arange(tstart,tend,step)
+                inds_ref = signal.argrelmax(cell_spline(spline_t),order=int(order/step))[0]
+                # convert to ptimes
+                if len(inds_ref)==1:
+                    ptimes_ref[i] = spline_t[inds_ref]
+            else:
+                inds_ref = signal.argrelmax(self.data[data][tstart:tend,i],order=order)[0]
+                # convert to ptimes
+                if len(inds_ref)==1:
+                    ptimes_ref[i] = self.t[t][inds_ref+tstart]
         
         return ptimes_ref
     
@@ -714,10 +753,13 @@ class network(object):
                 all_peaks = pgrams_all[all_peak_locs]
                 range_peak_locs = signal.argrelmax(pgrams_in_range, order=2)
                 range_peaks = pgrams_in_range[range_peak_locs]
-
-                if np.max(all_peaks) == np.max(range_peaks):                  
-                    rhythmic_cells[i] = 1
-                    cell_periods[i] = periods[period_inds[0][np.argmax(pgrams_in_range[0])]]
+                try:
+                    if np.max(all_peaks) == np.max(range_peaks):                  
+                        rhythmic_cells[i] = 1
+                        cell_periods[i] = periods[period_inds[0][np.argmax(pgrams_in_range[0])]]
+                except: 
+                    #somehow there are no peaks in range is usually the case
+                    pass
         
         #period_of_oscillatory_cells = np.argma
         self.periodogram['rhythmic_'+str(p)] = rhythmic_cells
@@ -734,6 +776,30 @@ class network(object):
         self.vrc = cellnames.astype(int)
         nodenames = xrange(self.nodecount)
         self.nvrc =np.array(list(set(nodenames) - set(cellnames)))
+    
+    def cycle_variability(self):
+        
+        mean_per_diff = []
+        diffcount = [] #used to weight means of cells to get scn
+        for i in xrange(len(self.rc)):
+            diff_pers = np.diff(self.periods_list[i])
+            mean_per_diff.append(np.mean(np.abs(diff_pers)))
+            diffcount.append(len(diff_pers))
+
+        self.cell_cycle_variability = mean_per_diff
+        self.mean_cycle_variability = np.sum(np.multiply(mean_per_diff,diffcount))/np.sum(diffcount)
+    
+    def amplitude(self):
+        """ Normalized by mean luminescence to account for non-constant cells/ROI """
+        
+        mean_amp = []
+        for i in xrange(len(self.rc)):
+            dwt_data = self.data['detrend_dwt'][:,i]
+            raw_data = self.data['raw'][:,i]
+            mean_amp.append(np.std(dwt_data)/np.mean(raw_data))
+        
+        self.cell_amplitude = mean_amp
+        self.mean_amplitude = np.mean(mean_amp)
         
     def rhythmic_comparison(self):
         """provides self.crc, common rhythmic cells, and net.cnrc, common
@@ -741,23 +807,27 @@ class network(object):
         self.crc = np.array(list(set(self.rc) & set(self.vrc))).astype(int)
         self.ncrc = np.array(list(set(self.nrc) & set(self.nvrc))).astype(int)
         
-    def networkx_graph(self,adj=None):
+    def networkx_graph(self,adj=None,cells='all'):
         """creates a networkx graph object for further analysis"""
         
         # initialize the object
         G = nx.Graph()
-        G.add_nodes_from(range(self.nodecount))
+        if cells=='all':
+            cells=range(self.nodecount)
+        
+        G.add_nodes_from(cells)
         
         if adj is not None:
-            edge_list = np.vstack(np.where(self.adj[adj]!=0)).T
+            connections = self.adj[adj]
+            edge_list = np.vstack(np.where(connections!=0)).T
             G.add_edges_from(edge_list)
         
         self.nx_graph = G
     
-    def networkx_plot(self,ax=None, colors=None, invert_y=False, **kwargs):
+    def networkx_plot(self,ax=None, invert_y=False, **kwargs):
         """plots a networkx graph"""
         
-        plo.PlotOptions()
+
         try:
             G = self.nx_graph
         except: 
@@ -785,8 +855,8 @@ class network(object):
         nx.draw_networkx_nodes(G, 
                                pos=self.locations,
                                node_size=10,
-                               node_color=colors, ax=ax, **kwargs)
-        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.1,ax=ax,**kwargs)
+                               ax=ax, **kwargs)
+        nx.draw_networkx_edges(G,pos=self.locations,width=0.5,alpha=0.3,ax=ax,**kwargs)
         
     
     def find_path_lengths(self, adj = 'def',num=500):
@@ -924,6 +994,30 @@ def detrend_constant(data):
     
     for i in xrange(nodecount):
         detrended[:,i] = signal.detrend(data[:,i],type='constant')
+    
+    return detrended
+
+def detrend_moving_mean(data, window):
+    """
+    detrends by subtracting a constant from the average of the window. window
+    is applied evenly so for now the window needs to be odd?
+    """
+    def rolling_window(a, window):
+        shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
+        strides = a.strides + (a.strides[-1],)
+        return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+    
+    #FIND SHAPE OF OUTPUT    
+    nodecount = data.shape[1]
+    detrended = np.zeros([len(data)-(window-1),nodecount])
+
+    
+    for i in xrange(nodecount):
+        data_i = data[:,i]
+        windowed_mean = np.mean(rolling_window(data_i,window),-1)
+        data_range = data_i[window/2:window/2+len(windowed_mean)]
+        detrended[:,i] = data_range-windowed_mean
+        
     
     return detrended
 
