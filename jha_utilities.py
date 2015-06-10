@@ -1,0 +1,144 @@
+"""
+A mixed file containing some utilities that I find useful in solving 
+circadian problems.
+
+jha
+"""
+
+#import modules
+from __future__ import division
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import (splrep, splint, fitpack, splev,
+                               UnivariateSpline, dfitpack,
+                               InterpolatedUnivariateSpline)
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.pyplot as plt
+from ColorMapCreator import ColorMapCreator
+
+def roots(data,times=None):
+    """
+    Takes a set of data and finds the roots of it. Uses a spline 
+    interpolation to get the root values.
+    """
+
+    if times is None:
+        #time intervals set to one
+        times = np.arange(len(data))
+
+    #fits a spline centered on those indexes
+    s = UnivariateSpline(times, data, s=0)
+
+    return s.roots()
+
+
+class fnlist(list):
+    # from Peter's things
+    def __call__(self,*args,**kwargs):
+        return np.array([entry(*args,**kwargs) for entry in self])
+
+def corrsort(mat):
+    """ Function to sort correlation matrix so that correlated variables
+    are closer to eachother.  """
+
+    # Get the eigenvalues and eigenvectors, sort them for increasing
+    # order
+    w, v = np.linalg.eig(mat)
+    v = v[:,w.argsort()]
+    w.sort()
+
+    e1 = v[:,-1]
+    e2 = v[:,-2]
+
+    angles = np.arctan(e2/e1) + ~(e1 > 0) * np.pi
+    order = angles.argsort()
+    angles = angles[order]
+    maxdiff = np.diff(angles).argmax() + 1
+
+    # Expand at maximum angular difference
+    order = np.concatenate((order[maxdiff:],order[:maxdiff]))
+
+    # reorder matrix rows, columns
+    mat = mat[order][:,order]
+
+    return mat, order
+
+class spline:
+    """ Periodic data interpolation object used by Collocation. Probably
+    could stand an update """
+    def __init__(self,tvals,yvals,sfactor):
+        self.max = np.array(yvals).max()
+        self.min = np.array(yvals).min()
+        self.amp = self.max-self.min
+        
+        # scaled y (0->1)
+
+        self.yscaled = (yvals - self.min)/self.amp
+        smooth = sfactor*(len(tvals) - np.sqrt(2*len(tvals)))
+        spl = splrep(tvals,self.yscaled,s=smooth,per=True)
+        self.spl = spl
+
+    def __call__(self,s,d=0):
+        if d == 0:
+            return self.amp*(splev(s, self.spl, der=d)) + self.min
+        else:
+            return self.amp*(splev(s, self.spl, der=d))
+
+def bode(G,f=np.arange(.01,100,.01),desc=None,color=None):
+
+    jw = 2*np.pi*f*1j
+    y = np.polyval(G.num, jw) / np.polyval(G.den, jw)
+    mag = 20.0*np.log10(abs(y))
+    phase = np.arctan2(y.imag, y.real)*180.0/np.pi % 360
+
+    #plt.semilogx(jw.imag, mag)
+    plt.semilogx(f,mag,label=desc,color=color)
+
+    return mag, phase
+
+
+def cmap_br(RGB1 = 255*np.array([0.894,0.102,0.110]), 
+             RGB2 = 255*np.array([0.216,0.494,0.722]),numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cm = cmc.matplotlibColorMap()
+     return cm
+
+def cmap_rb(RGB2 = 255*np.array([0.894,0.102,0.110]), 
+             RGB1 = 255*np.array([0.216,0.494,0.722]),numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cm = cmc.matplotlibColorMap()
+     return cm
+
+def cmap_rpb(RGB2 = 255*np.array([0.894,0.102,0.110]), 
+             RGB1 = 255*np.array([0.216,0.494,0.722]),
+                RGB3=np.array([152,178,163]), numColors=33):
+     """ returns a matplotlib diverging colormap for the two colors.
+     Note: The peak values are not exactly the two colors. It somehow gets 
+     scaled so that each peak is more intense than the two chosen colors.
+     This is ok. Still looks good."""
+     
+     cmc = ColorMapCreator(RGB2, RGB1,numColors=numColors)
+     cma = cmc.colorMapArray3(RGB3)
+     
+     return cma
+     
+
+if __name__ == "__main__":
+
+    #test roots
+    times = np.arange(0,10,0.1)
+    xvals = np.sin(times)
+    sine_roots = roots(xvals, times=times)
+    print 'The roots of sine are:'
+    print sine_roots
+    print 'Root finding successful.'

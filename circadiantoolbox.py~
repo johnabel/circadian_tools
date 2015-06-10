@@ -17,7 +17,7 @@ import pylab as pl
 import matplotlib.pyplot as plt
 import pdb
 from scipy import signal
-from scipy.interpolate import splrep, splev, UnivariateSpline
+from scipy.interpolate import splrep, splev
 
 
 class CircEval(object):
@@ -30,8 +30,8 @@ class CircEval(object):
         Setup the required information
         """
         self.model = model
-        self.neq = self.model.input(cs.DAE_X).size()
-        self.npa = self.model.input(cs.DAE_P).size()
+        self.EqnCount   = self.model.input(cs.DAE_X).size()
+        self.ParamCount = self.model.input(cs.DAE_P).size()
         
         self.model.init()
         self.param = param
@@ -40,23 +40,19 @@ class CircEval(object):
         self.jacy = self.model.jacobian(cs.DAE_X,0); self.jacy.init()
         
         self.ylabels = [self.model.inputSX(cs.DAE_X)[i].getDescription()
-                        for i in xrange(self.neq)]
+                        for i in xrange(self.EqnCount)]
         self.plabels = [self.model.inputSX(cs.DAE_P)[i].getDescription()
-                        for i in xrange(self.npa)]
+                        for i in xrange(self.ParamCount)]
         
         self.pdict = {}
         self.ydict = {}
         
-        for par,ind in zip(self.plabels,range(0,self.npa)):
+        for par,ind in zip(self.plabels,range(0,self.ParamCount)):
             self.pdict[par] = ind
             
-        for par,ind in zip(self.ylabels,range(0,self.neq)):
+        for par,ind in zip(self.ylabels,range(0,self.EqnCount)):
             self.ydict[par] = ind
-        
-        self.param_dict = {}
-        for i in range(self.npa):
-            self.param_dict[self.plabels[i]] = self.param[i]
-        
+            
         self.iv_ydict = {v: k for k, v in self.ydict.items()}
         self.iv_pdict = {v: k for k, v in self.pdict.items()}
         self.intoptions = {
@@ -85,6 +81,7 @@ class CircEval(object):
             numsteps    -   the number of steps in the integration.
         """
         if y0==None: y0 = self.y0
+        else: self.y0 = y0
 
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -144,7 +141,7 @@ class CircEval(object):
         
         LCpoint = np.array([out(tf)]).squeeze()
         self.y0 = LCpoint
-        return LCpoint
+	return LCpoint
     
         
     def intODEs_sim(self, tf, y0=None, numsteps=10000):
@@ -155,6 +152,7 @@ class CircEval(object):
             numsteps    -   the number of steps in the integration is the second argument
         """
         if y0==None: y0 = self.y0
+        else: self.y0 = y0
         
         self.integrator = cs.CVodesIntegrator(self.model)
 
@@ -166,7 +164,7 @@ class CircEval(object):
         
         #Let's integrate
         self.integrator.init()
-        self.ts = np.linspace(0,tf, numsteps, endpoint=False)
+        self.ts = np.linspace(0,tf, numsteps)
         
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
@@ -174,7 +172,7 @@ class CircEval(object):
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
 	
-        self.sol = self.simulator.output().toArray()
+	self.sol = self.simulator.output().toArray()
         return self.simulator.output().toArray()
 
     def burnTransient_sim(self, tf=1000, numsteps=10000):
@@ -205,7 +203,7 @@ class CircEval(object):
         ss= self.simulator.output().toArray()
 
         self.y0 = ss[-1]
-
+        pdb.set_trace()
 
         return ss[-1]
 
@@ -214,7 +212,7 @@ class CircEval(object):
     #                   Period Finding, Limit Cycle Identification
     #========================================================================  
     
-    def find_period(self,t=None,sol=None,StateVar=None):
+    def find_period(self,t,sol,StateVar=None):
         """ This function will find the period of a solution of the system of
         ODEs. If there is no period, it will return a negative value. The
         inputs to this function are:
@@ -238,32 +236,41 @@ class CircEval(object):
                                 
                                 **period as an output returns [period or
                                 error number, stdev] """
-        from jha_utilities import roots
-        
-        if sol == None:
-            sol = self.sol
-        if t==None:
-            t = self.ts
+
         
         #takes mean values of each state variable, subtracts mean so that the oscillations occur about 0
-        if StateVar:
-            stateindex = self.ydict[StateVar]
+	if StateVar:
+	    stateindex = self.ydict[StateVar]
         else: stateindex=0
         
-        sol_norm = sol[:,stateindex]-sol[:,stateindex].mean()    
+        matmean = np.zeros(len(sol[0,:]))
+        for i in range(len(sol[0,:])):
+            matmean[i]=np.mean(sol[:,i]) 
 
-        zero_arr = roots(sol_norm,t)
+        sol_eval = sol-matmean
+
+        #Index for where zero is crossed
+        zci = np.where(np.diff(np.sign(sol_eval[:,stateindex])))[0]
         
-        if len(zero_arr) < 6:
+        #if not enough zeros occur, returns a period of -2. this may occur when 
+        if len(zci) < 6:
             period = [-2, 'stable']
             return period
-                        
-        period_array = np.zeros(int(len(zero_arr)/2)-1)
-
-        for i in range(int(len(zero_arr)/2)-1):
-            period_array[i] = zero_arr[2*i+2]-zero_arr[2*i]
         
+        #times of 0-crossing
+        zerocross_time = np.zeros(len(zci))
 
+        #linear interpolation to find period
+        for i in range(len(zci)):
+            slope = (sol_eval[zci[i]+1,stateindex]-sol_eval[zci[i],stateindex])/(t[zci[i]+1]-t[zci[i]])
+            #(f(x2)-f(x1))/(x2-x1) = b2
+            
+            zerocross_time[i] = t[zci[i]] - sol_eval[zci[i],stateindex]/slope
+                        
+        period_array = np.zeros(int(len(zci)/2)-1)
+        for i in range(int(len(zci)/2)-1):
+            period_array[i] = zerocross_time[2*i+2]-zerocross_time[2*i]
+        
         per = np.mean(period_array)
         stdevper = np.std(period_array)
         
@@ -271,14 +278,14 @@ class CircEval(object):
             period = [-5, 'nan']
             return period
         
-        if stdevper > 0.01*per:
+        if stdevper > 0.001*per:
             period = [-3, per, stdevper]
             return period
-           
+       
         period = [per, stdevper]
         
         self.period = per
-        
+
         return period
         
 
@@ -286,7 +293,7 @@ class CircEval(object):
 
 
 
-    def find_y0(self, StateVar=None):
+    def find_y0PLC(self, t, sol, period=None, StateVar=None):
         """
         Identifies a point on the limit cycle such that the first state variable is at 0,
         sets this to the y0.
@@ -300,14 +307,10 @@ class CircEval(object):
         Outputs:
             y0dawn, dawn index, tnew, ynew
         """
-        
-        sol = self.sol
-        t = self.ts
-        try: period = self.period
-        except:
-            self.find_period()
+
+        if period is None:
             period = self.period
-            
+        
         if StateVar:
                 stateindex = self.ydict[StateVar]
         else: stateindex=0
@@ -342,26 +345,8 @@ class CircEval(object):
         self.y0dawn = y0dawn
         self.t = tnew
         self.y = ynew
-        self.phi = self.t/period*np.pi*2
-
-    def create_splines(self, s=0):
-        """
-        Returns self.spline_dict, which has splines between 0 and 2*pi for 
-        each state of the model. Also includes time as a spline.
-        """
-        spline_dict = {}
-        try: phi = self.phi
-        except: 
-            self.find_y0()
-            phi = self.phi
-            
-        t = self.t
+        #return [y0dawn, dawn_index, tnew, ynew]
         
-        for i in xrange(self.neq):
-            spline_dict[self.ylabels[i]] = UnivariateSpline(phi,self.y[:,i],s=s)
-        
-        spline_dict['t'] = UnivariateSpline(phi,t)
-        self.spline_dict = spline_dict
        
     #========================================================================
     #                   Fitting Utilities - useful for parameter estimation

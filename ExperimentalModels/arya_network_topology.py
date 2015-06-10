@@ -18,9 +18,9 @@ import matplotlib.pyplot as plt
 
 EqCount = 3
 ParamCount = 13
-modelversion='3state'
+modelversion='arya'
 
-cellcount=3
+cellcount=100
 
 period = 23.7000
 
@@ -109,7 +109,7 @@ def ODEmodel():
     fn = cs.SXFunction(cs.daeIn(t=t, x=y, p=paramset),
                        cs.daeOut(ode=ode))
     
-    fn.setOption("name","SDS16")
+    fn.setOption("name","arya")
     
     return fn
     
@@ -126,7 +126,7 @@ def SSAnetwork(fn,y0in,param,adjacency):
     """
     
     #Converts concentration to population
-    y0in_ssa = (vol*y0in).astype(int)
+    y0in_ssa = np.array([105,17,21])
     
     #collects state and parameter array to be converted to species and parameter objects,
     #makes copies of the names so that they are on record
@@ -151,7 +151,7 @@ def SSAnetwork(fn,y0in,param,adjacency):
         #random initial locations
         y0in_pop = 1*np.ones(EqCount*cellcount)
         for i in range(len(y0in_pop)):
-            y0in_pop[i] = vol*1*random.random()
+            y0in_pop[i] = vol*4*random.random()
 
     #===========================================
             
@@ -170,39 +170,60 @@ def SSAnetwork(fn,y0in,param,adjacency):
     for indx in range(cellcount):
             
         index = '_'+str(indx)+'_0'
-        # REACTIONS
-        SSA_builder.SSA_MM('M degradation'+index,'vm',
-                           km=['km'],Rct=['M'+index])
-        SSA_builder.SSA_MA_tln('Pc translation'+index, 'Pc'+index,
-                               'ks','M'+index)
-        SSA_builder.SSA_MM('Pc degradation'+index,'vd',
-                           km=['kd'],Rct=['Pc'+index])
         
-        #The complexing four:
-        SSA_builder.SSA_MA_cytonuc('cyto/nuc'+index,'Pc'+index,
-                                   'Pn'+index,'k1_','k2_')
-       
-    #coupled mRNA production       
-    for tocell in range(cellcount):
+        #Coupled terms - - -------------------------------------------------
         #loops for all cells accumulating their input
         avg = '0'
         mcount = 0
         for fromcell in range(cellcount):
-            if adjacency[fromcell,tocell]!= 0:
+            if adjacency[fromcell,indx]!= 0:
                 #The Coupling Part
                 mcount = mcount+1
                 avg = avg+'+M_'+str(fromcell)+'_0'
 
         
         weight = 1.0/mcount
-        rxn=stk.Reaction(name='per production for '+str(tocell),
-                        products={'M_'+str(tocell)+'_0':1},
-                        propensity_function=('std::max(0.0,(vs0+alocal('+avg+')*'
-                                    +str(weight)+'-M'+str(tocell)+'_0))'+ 
-                                    '*pow(k1,n)/(pow(k1,n)+pow(M'+str(tocell)+'_0,n)))'
-                                    ),
-                        annotation='')    
+        #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
+        if (str(SSA_builder.pvaldict['vs0']) ==
+                        SSA_builder.SSAmodel.listOfParameters['vs0'].expression):
+                SSA_builder.SSAmodel.setParameter('vs0',
+                                SSA_builder.SSAmodel.listOfParameters['vs0'].expression+'*('+str(SSA_builder.vol)+')')
+        if (str(SSA_builder.pvaldict['k1']) ==
+                        SSA_builder.SSAmodel.listOfParameters['k1'].expression):
+                SSA_builder.SSAmodel.setParameter('k1',
+                                SSA_builder.SSAmodel.listOfParameters['k1'].expression+'*('+str(SSA_builder.vol)+')')
+        
+        if (str(SSA_builder.pvaldict['alocal']) ==
+                        SSA_builder.SSAmodel.listOfParameters['alocal'].expression):
+                SSA_builder.SSAmodel.setParameter('alocal',
+                                SSA_builder.SSAmodel.listOfParameters['alocal'].expression+'*('+str(SSA_builder.vol)+')')
+        #####
+        #Adds reaction for coupling
+        rxn=stk.Reaction(name='Cell'+str(indx)+'_Reaction0',
+                         reactants={},
+                        products={'M_'+str(indx)+'_0':1},
+                        propensity_function=('std::max(0.0,(vs0+alocal*(('+avg+')*'
+                                    +str(weight)+'-M_'+str(indx)+'_0)))'+ 
+                                    '*pow(k1,n)/(pow(k1,n)+pow(Pn_'+str(indx)+'_0,n))'),annotation='')#
+   
         SSAmodel.addReaction(rxn)
+        #-------------------------------------------------------------------
+        
+        # REACTIONS
+        SSA_builder.SSA_MM('Cell'+str(indx)+'_Reaction1','vm',
+                           km=['km'],Rct=['M'+index])
+        
+        SSA_builder.SSA_MA_tln('Cell'+str(indx)+'_Reaction2', 'Pc'+index,
+                               'ks','M'+index)
+        
+        SSA_builder.SSA_MM('Cell'+str(indx)+'_Reaction3','vd',
+                           km=['kd'],Rct=['Pc'+index])
+        
+        #The complexing four:
+        SSA_builder.SSA_MA_cytonuc('Cell'+str(indx)+'_Reaction4','Pc'+index,
+                                   'Pn'+index,'k1_','k2_')
+        
+
     return SSAmodel,state_names,param_names
     
 
@@ -211,26 +232,46 @@ if __name__=='__main__':
     print param
     
     ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
-    sol = ODEsolC.intODEs_sim(tf=100)
+    sol = ODEsolC.intODEs_sim(100)
     tsol = ODEsolC.ts
-    plt.plot(sol)
-    plt.show()
+    #plt.plot(sol)
+
     
-    tf=100
+    tf=200
     inc = 0.05
-    adjacency = np.array([[1,1,0],[0,1,1],[0,0,1]])#, 
-                              #[0,0.5,0.5,0], 
-                              #[0,0,0.5,0],
-                              #[0,0,0,0]])
     
+    #watts-strogatz beta model
+    beta = 0.2
+    
+    adjacency = np.zeros(cellcount)
+    adjacency = np.diag(np.ones(cellcount-1),1) + np.diag(np.ones(cellcount-2),2)
+    adjacency[-1,0]=1
+    adjacency[-1,1]=1
+    adjacency[-2,0]=1
+    
+    ring = np.copy(adjacency)
+    locs = np.where(adjacency>0) #locations of connections
+    
+    #find where we should rewire
+    rewire = (np.random.rand(len(locs[0])) <= beta)
+    for i in xrange(len(rewire)):
+        if rewire[i] == True:
+            #remove conn1
+            adjacency[locs[0][i],locs[1][i]] = 0
+            adjacency[np.random.randint(cellcount),locs[1][i]] = 1
+    
+    plt.imshow(ring)
+    plt.figure()
+    plt.imshow(adjacency)
+    pdb.set_trace()
     SSAnet,state_names,param_names = SSAnetwork(ODEmodel(),
                                                     y0in,param,adjacency)
     
-    pdb.set_trace()
-    traj = stk.stochkit(SSAnet,job_id='3state',t=tf,
+
+    traj = stk.stochkit(SSAnet,job_id='beta0.1_network',t=tf,
                                number_of_trajectories=1,increment=inc,
                                seed=11)
-    plt.plot(traj[:,1:])
+    plt.plot(traj[0][:,1:])
                    
     pass
 

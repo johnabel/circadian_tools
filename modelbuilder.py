@@ -284,8 +284,9 @@ class SSA_builder(object):
         
         if len(km)==1:
             
-            #redefine k -- need some way to determine if it has been updated or not
-            if str(self.pvaldict[km[0]]) == self.SSAmodel.listOfParameters[km[0]].expression:
+            #redefine k -- checks for updated km
+            if str(self.pvaldict[km[0]]) == self.SSAmodel.listOfParameters[
+                                                    km[0]].expression:
                 self.SSAmodel.setParameter(km[0],self.SSAmodel.listOfParameters[km[0]].expression+'*('+str(self.vol)+')')
             
             #propensity funtion setup
@@ -328,11 +329,6 @@ class SSA_builder(object):
         self.SSAmodel.addReaction(rxn)
         #print Desc+' added successfully.'
         return
-
-
-
-
-
 
 
 

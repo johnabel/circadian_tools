@@ -16,7 +16,7 @@ import matplotlib
 # from CommonFiles.mimic_alpha import colorAlpha_to_rgb
 
 
-def PlotOptions(uselatex=True):
+def PlotOptions(uselatex=False):
 
     import matplotlib
     import matplotlib.axis, matplotlib.scale 
@@ -62,20 +62,19 @@ def PlotOptions(uselatex=True):
     
     #lighter
     matplotlib.colors.ColorConverter.colors['fl'] = \
-            (166/255, 206/255,227/255)
+            (153/255, 209/255,255/255)
     matplotlib.colors.ColorConverter.colors['hl'] = \
-            (251/255, 154/255, 153/255)
+            (255/255, 106/255, 107/255)
     matplotlib.colors.ColorConverter.colors['il'] = \
-            (178/255, 223/255,138/255)
+            (186/255, 1.000,184/255)
     matplotlib.colors.ColorConverter.colors['jl'] = \
-            (202/255, 178/255, 214/255)
+            (248/255, 199/255, 1.00)
     matplotlib.colors.ColorConverter.colors['ll'] = \
-            (253/255, 191/255, 111/255)
+            (255/255, 173/255, 110/255)
             
     if uselatex:
         matplotlib.rc('text', usetex=True)
         matplotlib.rc('font', family='serif')
-            
         
 
 # Padding for formatting figures using tight_layout

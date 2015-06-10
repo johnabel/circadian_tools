@@ -11,22 +11,18 @@ import casadi as cs
 import stochkit_resources as stk
 import circadiantoolbox as ctb
 import modelbuilder as mb
-import random
 import pdb
 import matplotlib.pyplot as plt
+import PlotOptions as plo
 
 
 EqCount = 3
 ParamCount = 13
-modelversion='3state'
-
-cellcount=3
+modelversion='three-state'
 
 period = 23.7000
 
 vol=50
-
-randomy0 = False
 
 y0in=np.array([2.1, 0.34, 0.42])
         
@@ -34,6 +30,7 @@ param = [0.83,0/50,     100/50.0, 0.5,
          4.0, 21.05/50, 50/50.0,   25/50.0, 
          0.417, 58.35/50, 6.5/50, 0.417, 
          0.5]
+
 
 def ODEmodel():
     #==================================================================
@@ -117,121 +114,111 @@ def ODEmodel():
     # Stochastic Model Portion
     #==================================================================
     
-def SSAnetwork(fn,y0in,param,adjacency):
+def SSAmodel(fn,y0in,param):
     """
     This is the network-level SSA model, with coupling. Call with:
-        SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
-    
-    To uncouple the model, set adjacency matrix to zeros    
+    SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
+    By default, there is no coupling in this model.    
     """
     
     #Converts concentration to population
-    y0in_ssa = (vol*y0in).astype(int)
+    y0in_pop = (vol*y0in).astype(int)
     
     #collects state and parameter array to be converted to species and parameter objects,
     #makes copies of the names so that they are on record
-    species_array = []
-    state_names=[]
-    if randomy0==False:
-        y0in_pop = []
-    
-
-    #coupling section===========================
-    for indx in range(cellcount):
-        index = '_'+str(indx)+'_0'
-        #loops to include all species, normally this is the only line needed without index
-        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
-                        for i in xrange(EqCount)]
-        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
-                        for i in xrange(EqCount)]  
-        if randomy0==False:                
-            y0in_pop = np.append(y0in_pop, y0in_ssa)       
-                
-    if randomy0 == True:
-        #random initial locations
-        y0in_pop = 1*np.ones(EqCount*cellcount)
-        for i in range(len(y0in_pop)):
-            y0in_pop[i] = vol*1*random.random()
-
-    #===========================================
-            
+    species_array = [fn.inputSX(cs.DAE_X)[i].getDescription()
+                    for i in xrange(EqCount)]
     param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
                     for i in xrange(ParamCount)]
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
-                    for i in xrange(ParamCount)]
-    #Names model
-    SSAmodel = stk.StochKitModel(name=modelversion)
     
-    #creates SSAmodel class object
+    state_names = [fn.inputSX(cs.DAE_X)[i].getDescription()
+                        for i in xrange(EqCount)]  
+    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+                        for i in xrange(ParamCount)]
+
+    #creates SSAmodel class object    
+    SSAmodel = stk.StochKitModel(name=modelversion)
     SSA_builder = mb.SSA_builder(species_array,param_array,y0in_pop,param,SSAmodel,vol)
     
 
-    #coupling section
-    for indx in range(cellcount):
-            
-        index = '_'+str(indx)+'_0'
-        # REACTIONS
-        SSA_builder.SSA_MM('M degradation'+index,'vm',
-                           km=['km'],Rct=['M'+index])
-        SSA_builder.SSA_MA_tln('Pc translation'+index, 'Pc'+index,
-                               'ks','M'+index)
-        SSA_builder.SSA_MM('Pc degradation'+index,'vd',
-                           km=['kd'],Rct=['Pc'+index])
-        
-        #The complexing four:
-        SSA_builder.SSA_MA_cytonuc('cyto/nuc'+index,'Pc'+index,
-                                   'Pn'+index,'k1_','k2_')
-       
-    #coupled mRNA production       
-    for tocell in range(cellcount):
-        #loops for all cells accumulating their input
-        avg = '0'
-        mcount = 0
-        for fromcell in range(cellcount):
-            if adjacency[fromcell,tocell]!= 0:
-                #The Coupling Part
-                mcount = mcount+1
-                avg = avg+'+M_'+str(fromcell)+'_0'
+    #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
+    if (str(SSA_builder.pvaldict['vs0']) ==
+                    SSA_builder.SSAmodel.listOfParameters['vs0'].expression):
+            SSA_builder.SSAmodel.setParameter('vs0',
+                            SSA_builder.SSAmodel.listOfParameters['vs0'].expression+'*('+str(SSA_builder.vol)+')')
+    if (str(SSA_builder.pvaldict['k1']) ==
+                    SSA_builder.SSAmodel.listOfParameters['k1'].expression):
+            SSA_builder.SSAmodel.setParameter('k1',
+                            SSA_builder.SSAmodel.listOfParameters['k1'].expression+'*('+str(SSA_builder.vol)+')')
+    
+    if (str(SSA_builder.pvaldict['alocal']) ==
+                    SSA_builder.SSAmodel.listOfParameters['alocal'].expression):
+            SSA_builder.SSAmodel.setParameter('alocal',
+                            SSA_builder.SSAmodel.listOfParameters['alocal'].expression+'*('+str(SSA_builder.vol)+')')
+    
+    
+    # REACTIONS
+    rxn0=stk.Reaction(name='Reaction0',
+                         reactants={},
+                        products={'M':1},
+                        propensity_function=(
+                        'vs0*pow(k1,n)/(pow(k1,n)+pow(Pn,n))'),annotation='')
+   
+    SSAmodel.addReaction(rxn0)    
+    
+    SSA_builder.SSA_MM('Reaction1','vm',
+                       km=['km'],Rct=['M'])
+    
+    SSA_builder.SSA_MA_tln('Reaction2', 'Pc',
+                           'ks','M')
+    
+    SSA_builder.SSA_MM('Reaction3','vd',
+                       km=['kd'],Rct=['Pc'])
 
+    SSA_builder.SSA_MA_cytonuc('Reaction4','Pc',
+                               'Pn','k1_','k2_')
         
-        weight = 1.0/mcount
-        rxn=stk.Reaction(name='per production for '+str(tocell),
-                        products={'M_'+str(tocell)+'_0':1},
-                        propensity_function=('std::max(0.0,(vs0+alocal('+avg+')*'
-                                    +str(weight)+'-M'+str(tocell)+'_0))'+ 
-                                    '*pow(k1,n)/(pow(k1,n)+pow(M'+str(tocell)+'_0,n)))'
-                                    ),
-                        annotation='')    
-        SSAmodel.addReaction(rxn)
+
     return SSAmodel,state_names,param_names
     
 
 if __name__=='__main__':
     
-    print param
+    # runs and compares one stochastic trajectory with deterministic solution
+    import matplotlib.gridspec as gridspec
     
     ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
-    sol = ODEsolC.intODEs_sim(tf=100)
+    sol = ODEsolC.intODEs_sim(y0in,100)
     tsol = ODEsolC.ts
-    plt.plot(sol)
-    plt.show()
+    
     
     tf=100
     inc = 0.05
-    adjacency = np.array([[1,1,0],[0,1,1],[0,0,1]])#, 
-                              #[0,0.5,0.5,0], 
-                              #[0,0,0.5,0],
-                              #[0,0,0,0]])
     
-    SSAnet,state_names,param_names = SSAnetwork(ODEmodel(),
-                                                    y0in,param,adjacency)
-    
-    pdb.set_trace()
-    traj = stk.stochkit(SSAnet,job_id='3state',t=tf,
-                               number_of_trajectories=1,increment=inc,
+    SSAnet,state_names,param_names = SSAmodel(ODEmodel(),
+                                                    y0in,param)
+                                                    
+    traj = stk.stochkit(SSAnet,job_id='threestate',t=tf,
+                               number_of_trajectories=100,increment=inc,
                                seed=11)
-    plt.plot(traj[:,1:])
-                   
+                               
+    plo.PlotOptions()
+    plt.figure(figsize=(3.5*2,2.62))
+    gs = gridspec.GridSpec(1,2)
+    
+    ax0=plt.subplot(gs[0,0])
+    ax0.plot(tsol,sol,label=['M','C','N'])
+    ax0.set_xlabel('Time, hr')
+    ax0.set_ylabel('SV Concentration')
+    
+    ax1=plt.subplot(gs[0,1])
+    seval = stk.StochEval(traj,state_names,param_names,vol)
+    seval.PlotAvg('M')
+    ax1.set_xlabel('Time, hr')
+    ax1.set_ylabel('SV Count')
+    
+    plt.tight_layout(**plo.layout_pad)
+    plt.show()
     pass
 
 

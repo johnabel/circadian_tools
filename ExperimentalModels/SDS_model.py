@@ -9,35 +9,28 @@ Created on Sat Apr 19 12:19:48 2014
 import numpy  as np
 import casadi as cs
 import pdb
-import jha_CommonFiles.stochkit_resources as stk
-import jha_CommonFiles.modelbuilder as mb
+import stochkit_resources as stk
+import modelbuilder as mb
 import matplotlib.pyplot as plt
-import jha_CommonFiles.circadiantoolbox as ctb
-import jha_CommonFiles.Bioluminescence as bl
+import circadiantoolbox as ctb
+import Bioluminescence as bl
 import random
 
 EqCount = 11
 ParamCount = 35
 modelversion='SDScoupled16'
 
-xlen = 10
-ylen = 10
-
 period = 23.7000
 
-vol=220
+vol=400
 
 randomy0 = False
 
 #better for stoch
-y0in=np.array([ 0.27639502,  1.49578759,  0.23951501,  0.10907372,  0.00704751,
-        0.963337  ,  0.59516789,  0.71254298,  0.28286947,  0.02583619,
-        0.23034218])
-"""
 y0in=np.array([ 0.11059226,  1.13722226,  0.19297633,  0.07438731,  0.00253855,
         0.71412118,  0.48822501,  0.47379907,  0.36659393,  0.04421288,
         0.23519741])
-"""
+
 
         
 param = [0.41461483697868157, 0.3499288858096469, 0.12350287248265006,
@@ -180,7 +173,7 @@ def ODEmodel():
     # Stochastic Model Portion
     #==================================================================
     
-def SSAmodelC(fn,y0in,param,vol=220):
+def SSAmodelC(fn,y0in,param,vol,xlen=10,ylen=10):#,vol=220):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -288,7 +281,7 @@ def SSAmodelC(fn,y0in,param,vol=220):
 def SSAcell(fn,y0in,param,vol=220):
     """
     This is the single cell-level SSA model. Call with:
-        SSAuncoupled,state_names,param_names = SSAmodelU(ODEmodel(),y0in,param)  
+        SSAcell,state_names,param_names = SSAcell(ODEmodel(),y0in,param)  
     """
     #Converts concentration to population
     y0in_pop = (vol*y0in).astype(int)
@@ -323,8 +316,8 @@ def SSAcell(fn,y0in,param,vol=220):
     SSA_builder.SSA_MM('c2 mRNA repression','vtc2r',km=['kncr'],Prod=['c2'],Rep=['C1P','C2P'])
     SSA_builder.SSA_MM('c2 mRNA degradation','vdc2',km=['kdc'],Rct=['c2'])
     
-    #vip mRNA
-    SSA_builder.SSA_MM('vip mRNA repression','vtvr',km=['knvr'],Prod=['vip'],Rep=['C1P','C2P'])
+    #vip mRNA - no vip creation for uncoupled cells
+    #SSA_builder.SSA_MM('vip mRNA repression','vtvr',km=['knvr'],Prod=['vip'],Rep=['C1P','C2P'])
     SSA_builder.SSA_MM('vip mRNA degradation','vdv',km=['kdv'],Rct=['vip'])
     
     #CRY1, CRY2, PER, VIP creation and degradation
@@ -356,7 +349,13 @@ def SSAcell(fn,y0in,param,vol=220):
 
 
     
+if __name__ == "__main__":
     
+    SSAmodel,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param,vol)
+    
+    for i in range(ParamCount):
+        print param_names[i],
+        print param[i]
     
     
     
