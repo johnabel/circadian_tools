@@ -27,9 +27,55 @@ param = [0.45, 0.1, 0.4, 0.2, 0.4, 0.2, 0.5, 0.1, 0.6, 0.6, 2.2, 0.01, 0.01,\
          0.06, 10, 0.5, 5, 1, 5, 2.5, 0.01, 0.01, 1, 1.5, 0.15, 1, 5, 0.001,\ 
          0.5, 400, 6, 3, 0.67, 4.2, 149.5, 5, 2.2, 4.2, 2.1, 1.8]
          
-y0in = [-1.29374616,  0.67413515, -1.62914683,  0.87060893]
+y0in = [1]*neq
 period = 24
 
+#firing rate parameters
+firing_params = [5, 114.5, 1, 6, 0, -97, -29, 45, 96485, 12.3, 9.7, 36, 
+                 1.4e-23, 34, 22, 4, 1, 574050000, 1, 10, 0.16, 1, 145, 2.2, 
+                 -0.2, 2.5, -1, -1, 0.05, 0.3, 1.1, 0.036, 1.6e-19, 8.314, 
+                 310.15, 295.15, 0.41, 20, 12.3, 15.5, 19, 101.0, 3.5, 10, 
+                 3, 1.9, 1, -2]
+
+def firing_rate(firing_params):
+    # calculates firing rate from some firing rate parameters
+    Ca_out = F(1);%15;%mM
+    Cl_ex=F(2);
+    % Cl_o=F(3);
+    Cp=F(4);
+    E_ex=F(5);
+    EK_o=F(6);
+    EL_o=F(7);
+    ENa_o=F(8);%
+    g_inhib= F(10);
+    gKo=F(11);
+    gNa =F(12);
+    k = F(13);
+    K_R=F(14);
+    KCa= F(15);
+    KCl1=F(16);
+    KCl2=F(17);
+    Kex1=F(18);
+    Kex2=F(19);
+    Kgk=F(20);
+    KKCa=F(21);
+    nca=F(24);
+    nCl=F(25);
+    nex1=F(26);
+    nex2=F(27);
+    nKCa=F(28);
+    q = F(33);
+    T = F(35);
+    T_room= F(36);
+    V_R=F(37);
+    V_theta=F(38);
+    vCa=F(39);
+    vCl1=F(40);
+    vCl2=F(41);
+    Vex1= F(42);
+    Vex2=F(43);
+    vgk=F(44);
+    vKCa=F(45);
 
 def vasalou_model_ode():
     
@@ -177,3 +223,4 @@ def vasalou_model_ode():
     
     
     # ode system
+    

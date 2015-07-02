@@ -374,7 +374,7 @@ class network(object):
         self.mean_phase = mean_phase
         
     def times_of_period(self,data='detrend_dwt', cells = 'all',
-                     interpolating_time_steps = 10000, start_cut = 24, end_time = 120):
+                     interpolating_time_steps = 10000, start_cut = 12, end_time = 120):
         """ returns period times as lists for each individual cell in the 
         list of cells. does so by interpolating a series of data (for example,
         the dwt detrended data) 
@@ -401,13 +401,11 @@ class network(object):
         periods_list = []
         interpolation_times = np.linspace(start_cut,
                                           end_time,#self.t['raw'].max()-end_cut, 
-                                       interpolating_time_steps)
-                                    
-                                       
+                                       interpolating_time_steps)      
         # find periods now from the max of the dwt signal
         for i in xrange(len(cells)):
             inds = signal.argrelmax(splines_dict[i](interpolation_times), 
-                                    order=2)
+                                    order=int(8*interpolating_time_steps/(end_time-start_cut)))
             ptimes = interpolation_times[inds]
             periods = np.diff(ptimes)
             periods_list.append(periods)
@@ -648,7 +646,7 @@ class network(object):
             nyquist_freq = self.sph[data]/2
             period_low = 1/nyquist_freq
         if period_high is None:
-            period_high = 64# max(self.t['raw'])/4
+            period_high = 64
         if res is None:
             res = (period_high-period_low)*10
         
@@ -663,8 +661,7 @@ class network(object):
         for i in range(len(cells)):
             cell_data = lsdata[:,i]
             
-            #removes dwt lowest bin, the trend, and dwt bin for 64-128 hour
-            # periods, due to some leakage?
+            #removes dwt lowest bin, the trend
             if remove_dwt_trend:
                 cell_data = sum(dwt_breakdown(self.t[data], 
                                     cell_data)['components'][:dwt_max_bin],0)
@@ -749,7 +746,7 @@ class network(object):
             if (pgrams_in_range > z).any():
                 
                 # enforces that highest peak must be in circadian range
-                all_peak_locs = signal.argrelmax(pgrams_all, order = 2)
+                all_peak_locs = signal.argrelmax(pgrams_all, order = 14)
                 all_peaks = pgrams_all[all_peak_locs]
                 range_peak_locs = signal.argrelmax(pgrams_in_range, order=2)
                 range_peaks = pgrams_in_range[range_peak_locs]
@@ -757,6 +754,8 @@ class network(object):
                     if np.max(all_peaks) == np.max(range_peaks):                  
                         rhythmic_cells[i] = 1
                         cell_periods[i] = periods[period_inds[0][np.argmax(pgrams_in_range[0])]]
+                    else:
+                        rhythmic_cells[i] = 0
                 except: 
                     #somehow there are no peaks in range is usually the case
                     pass
@@ -889,7 +888,7 @@ class network(object):
         self.path_lengths = path_lengths
 
     def plot_heatmap2(self,cells,heats=None,ax=None,cmap='YlGn',
-                     xtitle='',max_heats=1,min_heats=0):
+                     xtitle='',max_heats=1,min_heats=0, greatest_diff = None):
         """ heatmap generator for any of the things Erik wants. Feed in the 
         heats that match up to the cells
         cells: list of locations
@@ -902,16 +901,17 @@ class network(object):
         
         if ax is None:
             ax = plt.subplot()
-            
+        
         max_x = np.max(np.array(self.locations.values())[:,0])
         min_x = np.min(np.array(self.locations.values())[:,0])
         
         max_y = np.max(np.array(self.locations.values())[:,1])
         min_y = np.min(np.array(self.locations.values())[:,1])
         
-        greatest_diff = np.max([(max_x-min_x+1), (max_y-min_y+1)])
+        if greatest_diff == None:
+            greatest_diff = np.max([(max_x-min_x+1), (max_y-min_y+1)])
         
-        
+                
         
         # the map we will eventually plot
         map = np.ones([greatest_diff,greatest_diff])*-1E-10 #default to no ROI
@@ -919,13 +919,15 @@ class network(object):
         
         for ci in xrange(self.nodecount):
             # all ROI receive a value for if they are not rhythmic
-            map[self.locations[ci][0]-min_x,self.locations[ci][1]-min_y] =\
-                            -0.5
+            #center also here
+            map[self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2,
+                self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2] = -0.5
 
         if len(heats)>0:          
             for hi in xrange(len(cells)):
                 ci = cells[hi]
-                map[self.locations[ci][0]-min_x,self.locations[ci][1]-min_y] =\
+                map[self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2,
+                    self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2] =\
                                 heats[hi]
         
         
@@ -939,7 +941,10 @@ class network(object):
         colb2 = ax.pcolormesh(map2,cmap=cmap,vmax=max_heats,vmin=min_heats,
                               rasterized=True)
         #cb2 = plt.colorbar(colb2)
-        
+        ax.spines["bottom"].set_visible(False)
+        ax.spines["top"].set_visible(False)  
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
         ax.tick_params(\
             axis='both',       # changes apply to the x-axis
             which='both',      # both major and minor ticks are affected
