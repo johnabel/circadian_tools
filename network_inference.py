@@ -246,7 +246,8 @@ class network(object):
     def detrend(self,detrend='constant',data='raw', 
                 est_period = 24, smoothing_parameter = None,
                 dwt_bin_desired = 3,
-                window = 24.0):
+                window = 24.0,
+                dwt_max_bin=None):
         """
         detrend='constant'
         detrends by subtracting a constant
@@ -267,7 +268,11 @@ class network(object):
         -or-
         
         detrend='moving_mean'
-        detrends using a moving mean subtraction. give the mean 
+        detrends using a moving mean subtraction.
+        
+        -or-
+        
+        detrend = 'baseline' removes the trend bin from the dwt
         """
         if detrend == 'constant':
             detrended = detrend_constant(self.data[data])
@@ -300,6 +305,15 @@ class network(object):
             self.data['detrend_mm'] = detrended
             self.t['detrend_mm'] = self.t[data][:len(detrended)]
             self.sph['detrend_mm'] = self.sph[data]
+        
+        if detrend == 'baseline':
+            detrended = detrend_baseline(self.t[data],
+                            self.data[data],
+                            dwt_max_bin
+                            )
+            self.data['detrend_baseline'] = detrended
+            self.t['detrend_baseline'] = self.t[data][:len(detrended)]
+            self.sph['detrend_baseline'] = self.sph[data]
 
     def hilbert_transform(self,detrend='detrend_cons', cells='all'):
         """applys a hilbert transform to determine instantaneous phase.
@@ -1121,6 +1135,20 @@ def detrend_dwt(t, data, bin_num):
         data_dict[:,i] = dwt_breakdown(t, data[:,i])['components'][bin_num]
     
     return data_dict
+
+def detrend_baseline(t, data, dwt_max_bin):
+    
+    cells = len(data[0,:])
+    detrend_data = np.copy(data)
+    
+    for i in range(cells):
+        cell_data = data[:,i]
+        
+        #removes dwt lowest bin, the trend
+        detrend_data[:,i] = sum(dwt_breakdown(t, 
+                            cell_data)['components'][:dwt_max_bin],0)
+                            
+    return detrend_data
 
 def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
     """ Function to break down the data in y into multiple frequency

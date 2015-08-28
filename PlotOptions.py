@@ -75,6 +75,10 @@ def PlotOptions(uselatex=True):
     if uselatex:
         matplotlib.rc('text', usetex=True)
         matplotlib.rc('font', family='serif')
+    
+    from matplotlib import rcParams
+    rcParams['xtick.direction'] = 'out'
+    rcParams['ytick.direction'] = 'out'
             
         
 
@@ -216,3 +220,31 @@ def color_range(NUM_COLORS, cm=None):
     if cm is None: cm = matplotlib.cm.get_cmap('gist_rainbow')
     return (cm(1.*i/NUM_COLORS) for i in range(NUM_COLORS))
 
+def jitter_uni(x_values, x_range = None):
+    """Adds jitter in the x direction according to 
+    http://matplotlib.1069221.n5.nabble.com/jitter-in-matplotlib-td12573.html
+    where we use a uniform distribution in x."""
+    if len(x_values)==1:
+        print("No need to jitter_uni, single x value")
+        return
+        
+    from scipy import stats
+    
+    if x_range == None:
+        x_range = (np.max(x_values) - np.min(x_values))/len(np.unique(x_values))
+    
+    jitter = x_values + stats.uniform.rvs(-x_range,2*x_range,len(x_values))
+    return jitter
+
+def jitter_norm(y_values, y_range = None):
+    """Adds jitter in the y direction according to 
+    http://stackoverflow.com/questions/8671808/matplotlib-preventing-overlaying-datapoints
+    where we use a normal distribution in y."""
+    if len(y_values)==1:
+        print("No need to jitter_norm, single y value")
+        return
+    
+    y_range = .01*(np.max(y_values)-min(y_values))
+    jitter = y_values + np.random.randn(len(y_values)) * y_range
+    
+    return jitter
