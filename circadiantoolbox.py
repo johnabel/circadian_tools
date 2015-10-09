@@ -77,7 +77,7 @@ class CircEval(object):
     #                   ODE INTEGRATION
     #======================================================================== 
           
-    def intODEs(self, y0=None, tf = 1000, numsteps = 1000):
+    def intODEs(self, y0=None, tf = 1000.0, numsteps = 1000):
         """
         This function integrates the ODEs until well past the transients. Inputs:
             tf          -   the final time of integration. the number of time steps within [0,tf] is below,
@@ -109,7 +109,7 @@ class CircEval(object):
             self.integrator.output().toArray()
             return self.integrator.output().toArray().squeeze()
         
-        sol = np.array([out(t) for t in self.ts])
+        sol = np.array([out(t) for t in self.ts]).T
         return sol
     
     def burnTransient(self,tf = 1000, numsteps = 10000):
@@ -157,11 +157,12 @@ class CircEval(object):
         if y0==None: y0 = self.y0
         
         self.integrator = cs.Integrator('cvodes',self.model)
-
+        
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])
         self.integrator.setOption("reltol", self.intoptions['intreltol'])
         self.integrator.setOption("max_num_steps", self.intoptions['intmaxstepcount'])
+        pdb.set_trace()
         self.integrator.setOption("tf",tf)
         
         #Let's integrate
@@ -174,8 +175,8 @@ class CircEval(object):
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
 	
-        self.sol = self.simulator.output().toArray()
-        return self.simulator.output().toArray()
+        self.sol = self.simulator.output().toArray().T
+        return self.simulator.output().toArray().T
 
     def burnTransient_sim(self, tf=1000, numsteps=10000):
         """

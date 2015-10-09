@@ -324,7 +324,7 @@ if __name__=='__main__':
     print param
     
     ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
-    sol = ODEsolC.intODEs_sim(y0in,100)
+    sol = ODEsolC.intODEs_sim(100)
     tsol = ODEsolC.ts
     plt.plot(tsol,sol)
     plt.show()
