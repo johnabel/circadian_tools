@@ -39,9 +39,9 @@ class CircEval(object):
         self.jacp = self.model.jacobian(cs.DAE_P,0); self.jacp.init()
         self.jacy = self.model.jacobian(cs.DAE_X,0); self.jacy.init()
         
-        self.ylabels = [self.model.inputSX(cs.DAE_X)[i].getDescription()
+        self.ylabels = [self.model.inputExpr(cs.DAE_X)[i].getName()
                         for i in xrange(self.neq)]
-        self.plabels = [self.model.inputSX(cs.DAE_P)[i].getDescription()
+        self.plabels = [self.model.inputExpr(cs.DAE_P)[i].getName()
                         for i in xrange(self.npa)]
         
         self.pdict = {}
@@ -86,7 +86,7 @@ class CircEval(object):
         """
         if y0==None: y0 = self.y0
 
-        self.integrator = cs.CVodesIntegrator(self.model)
+        self.integrator = cs.Integrator('cvodes',self.model)
 
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])
@@ -120,7 +120,7 @@ class CircEval(object):
             numsteps    -   the number of steps in the integration.
         """
 
-        self.integrator = cs.CVodesIntegrator(self.model)
+        self.integrator = cs.Integrator('cvodes',self.model)
 
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])
@@ -156,7 +156,7 @@ class CircEval(object):
         """
         if y0==None: y0 = self.y0
         
-        self.integrator = cs.CVodesIntegrator(self.model)
+        self.integrator = cs.Integrator('cvodes',self.model)
 
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])
@@ -185,7 +185,7 @@ class CircEval(object):
             numsteps    -   the number of steps in the integration is the second argument
         """
         
-        self.integrator = cs.CVodesIntegrator(self.model)
+        self.integrator = cs.Integrator('cvodes',self.model)
 
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])
@@ -630,7 +630,7 @@ class CircEval(object):
         #at each point, find the phase response
         
         #first, set up the integrator
-        self.integrator = cs.CVodesIntegrator(self.model)
+        self.integrator = cs.Integrator('cvodes',self.model)
 
         #Set up the tolerances etc.
         self.integrator.setOption("abstol", self.intoptions['intabstol'])

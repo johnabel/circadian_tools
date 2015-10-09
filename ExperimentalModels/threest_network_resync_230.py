@@ -140,17 +140,17 @@ def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
     for indx in range(cellcount):
         index = '_'+str(indx)+'_0'
         #loops to include all species, normally this is the only line needed without index
-        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        species_array = species_array + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]
-        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        state_names = state_names + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]                 
         y0in_pop = np.append(y0in_pop, y0in_ssa)       
 
     #===========================================
             
-    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_array   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_names   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
     #Names model
     SSAmodel = stk.StochKitModel(name=modelversion)
@@ -237,18 +237,18 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
     for indx in range(cellcount):
         index = '_'+str(indx)+'_0'
         #loops to include all species, normally this is the only line needed without index
-        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        species_array = species_array + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]
-        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        state_names = state_names + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]       
     
     y0in_pop = y0in_desync
 
     #===========================================
             
-    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_array   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_names   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
     #Names model
     SSAmodel = stk.StochKitModel(name=modelversion)
