@@ -16,7 +16,7 @@ import matplotlib
 # from CommonFiles.mimic_alpha import colorAlpha_to_rgb
 
 
-def PlotOptions(uselatex=True):
+def PlotOptions(uselatex=False):
 
     import matplotlib
     import matplotlib.axis, matplotlib.scale 
@@ -174,6 +174,15 @@ def histogram(ax, data1=None, data2=None, color1=blue, color2=red,
         ax.legend(loc='upper left')
         return hist1
 
+def hide_spines(ax):
+    """Hides the top and rightmost axis spines from view for all active
+    figures and their respective axes."""
+    # Disable spines.
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    # Disable ticks.
+    ax.xaxis.set_ticks_position('bottom')
+    ax.yaxis.set_ticks_position('left')
 
 def density_contour(ax, xdata, ydata, nbins_x, nbins_y, range=None,
                     levels=None, **contour_kwargs):

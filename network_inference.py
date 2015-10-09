@@ -19,6 +19,7 @@ import minepy as mp
 import numpy.random as random
 import networkx as nx
 import pywt
+import collections
 
 from jha_utilities import corrsort, cmap_rb
 
@@ -75,7 +76,7 @@ class network(object):
             elif type(loc) is np.ndarray:
                 loc_dict = {}
                 for i in xrange(len(loc)):
-                    loc_dict[i] = (loc[i,1], loc[i,2])
+                    loc_dict[i] = (loc[i,-2], loc[i,-1])
                 self.locations = loc_dict
             else:
                 print "Location data type not recognized."
@@ -151,17 +152,17 @@ class network(object):
             self.mic[use_sph] = mic
         else: self.mic = {use_sph : mic}
 
-    def ipython_MIC(self,use_data='raw'):
+    def ipython_MIC(self,use_data='raw',myprofile='john'):
         """
         Parallel calculation of MIC for an array of trajectories. It calls 
         the function below it, ipython_mp, which is parallelizable.
         """
-        from IPython import parallel as pll        
+        import ipyparallel as pll        
         
         # checks to make sure Client may be run
-        try: client = pll.Client()
+        try: client = pll.Client(profile=myprofile)
         except IOError, e:
-            print "Cannot run parallel calculation, no engines running."
+            print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
             print e
             return
         
@@ -179,8 +180,7 @@ class network(object):
         feed_data = []
         for i in inds:
             # incredibly obnoxious to get into correct format
-            feed_data.append(np.vstack((self.data['mic'][:,i[0]], 
-                                        self.data['mic'][:,i[1]])).T)
+            feed_data.append([self.data['mic'],i[0],i[1]])
                                         # transform to get it to be veritcal
         
         self.feed_data_mic = feed_data
@@ -401,6 +401,7 @@ class network(object):
         """
         
         #make a dict of splines
+        end_time = np.min([end_time, np.max(self.t['raw'])])
         
         try: splines_dict = np.array(self.spline_dict[data].values())
         except: 
@@ -410,22 +411,29 @@ class network(object):
         # only use the splines indicated by "cells"
         if cells == 'all':
             cells = np.arange(self.nodecount)
-        splines_dict = splines_dict[cells]
         
         periods_list = []
+        cell_ind_periods_list = []
+        periods_dict = {}
         interpolation_times = np.linspace(start_cut,
                                           end_time,#self.t['raw'].max()-end_cut, 
                                        interpolating_time_steps)      
         # find periods now from the max of the dwt signal
         for i in xrange(len(cells)):
-            inds = signal.argrelmax(splines_dict[i](interpolation_times), 
+            cell = cells[i]
+            inds = signal.argrelmax(splines_dict[cell](interpolation_times), 
                                     order=int(8*interpolating_time_steps/(end_time-start_cut)))
             ptimes = interpolation_times[inds]
             periods = np.diff(ptimes)
             periods_list.append(periods)
+            periods_dict.update({cell:periods})
+            
+            
+            
         
         
         self.periods_list = periods_list
+        self.periods_dict = periods_dict
         
     def plot_splines(self,s_name='bioluminescence', derivative=0, 
                      ax=None, t=None,scaling=1, colors=None, **kwargs):
@@ -476,27 +484,7 @@ class network(object):
                 color[j] = colors[i]
         return color
         
-    def clustering_coeff(self):
-        """celculates the clustering coefficient"""
-        
-        print 'The average clustering coefficient is: ',
-        print nx.average_clustering(self.nx_graph)
-        self.c_delta_avg = nx.average_clustering(self.nx_graph)
-    
-    def average_path_length(self):
-        """celculates the average path length"""
-        if nx.number_connected_components(self.nx_graph) > 1:
-            print 'Unconnected bits exist.'
-            G = self.nx_graph.subgraph(nx.shortest_path(self.nx_graph.to_undirected(),10))
-            print 'The average shortest path length is: ',
-            self.l_avg = nx.average_shortest_path_length(G)
-            print nx.average_shortest_path_length(G)
-            return
-        else: 
-            print 'The average shortest path length is: ',
-            self.l_avg = nx.average_shortest_path_length(self.nx_graph)
-            print nx.average_shortest_path_length(self.nx_graph)
-    
+
     def generate_bioluminescence_gif(self, name = '', delete_pngs = True):
         """ uses imagemagick to make a gif of the bioluminescence oscillating.
         requires locations be defined. """
@@ -714,11 +702,11 @@ class network(object):
             self.bioluminescence_to_spline(data=data)
             step = 0.01
             
-        ptimes_ref = np.zeros(self.nodecount)
-        for i in cells:
+        ptimes_ref = np.zeros(len(cells))
+        for i,cell in enumerate(cells):
             if spline==True:
                 # select a spline representation of the data
-                cell_spline = self.spline_dict[data][i]
+                cell_spline = self.spline_dict[data][cell]
                 spline_t = np.arange(tstart,tend,step)
                 inds_ref = signal.argrelmax(cell_spline(spline_t),order=int(order/step))[0]
                 # convert to ptimes
@@ -730,7 +718,10 @@ class network(object):
                 if len(inds_ref)==1:
                     ptimes_ref[i] = self.t[t][inds_ref+tstart]
         
-        return ptimes_ref
+        try:
+            self.ptimes[tstart] = ptimes_ref
+        except:
+            self.ptimes = {tstart:ptimes_ref}
     
     def ls_rhythmic_cells2(self, p = 0.05, circ_low=18, circ_high=32):
         """TEST FUNCTION determines which cells are rhythmic from the lomb-scargle
@@ -975,34 +966,6 @@ class network(object):
         
 #if you want to scoop your inference, import scoop and write its own function
 #in your program
-def ipython_periodogram(nets,**kwargs):
-    """quickly takes periodogram for a list of networks"""
-    from IPython import parallel as pll        
-        
-    # checks to make sure Client may be run
-    try: client = pll.Client()
-    except IOError, e:
-        print "Cannot run parallel calculation, no engines running."
-        print e
-        return
-    
-    import time
-    start_time = time.time()
-   
-    #parallel component
-    dview = client[:] # use all nodes alotted
-    #include necessary imports for function
-    dview.execute('import network_inference as ni; reload(ni)')
-        
-    dview.map_sync(ipp,nets)
-    
-    end_time = time.time()-start_time
-    print end_time
-    
-def ipp(net,**kwargs):
-    """attached to ipython_periodogram"""
-    net.ls_periodogram(**kwargs)
-
 #parts not in the class
 def detrend_constant(data):
     """
@@ -1062,12 +1025,19 @@ def detrend_hodrick_prescott(t,data,smoothing_parameter = None,
         
     return detrended
 
+
+
+# PARALLELIZATION FOR NET INFERENCE
 def ipython_mp(data):
     """
     Function that is only called to parallelize the MIC calculation. This
     function is parallelizable and only takes indexes as input.
     """
-    return mp.minestats(data[:,0],data[:,1])['mic']
+    trajs=data[0]
+    loc0=data[1]
+    loc1=data[2]
+    mic = mp.minestats(trajs[:,loc0],trajs[:,loc1])['mic']
+    return mic
 
 def ROC(adj, infer, ints = 1000):
     """
@@ -1121,6 +1091,89 @@ def ROC(adj, infer, ints = 1000):
         
         roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
     return roc
+
+def ipython_ROC(adj, infer, ints = 1000, myprofile='john'):
+    """
+    Compares adj, the connectivity matrix, to infer, the inferred mutual info
+    matrix, to determine the ROC curve. Default of cutoff range from 0 to 1, 
+    1000 intervals.
+    
+    Returns: 
+        false positive rate, sensitivity, false negative rate, specificity 
+    """
+    
+    if np.shape(adj) != np.shape(infer):
+        print 'ERROR: Shapes of adjacency matrices do not match.'
+        return
+
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    rocdata=[]
+    #set up rocdata total intervals, interval, adj, mic
+    for i in range(ints):
+        rocdata.append([ints, i*1.0, adj, infer])
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; reload(ni)')
+    roc = dview.map_sync(pROC,rocdata)
+    
+    end_time = time.time()-start_time
+    print end_time
+    
+    return roc
+
+def pROC(rocdata, **kwargs):
+
+    
+    intervals = rocdata[0]
+    interval = rocdata[1]
+    adj = rocdata[2]
+    infer = rocdata[3]
+    
+    
+    #ROC set up for parallel calc
+    TP = (adj != 0).sum()
+    TN = (adj == 0).sum()
+    cellcount = len(adj)
+    criteria = interval/(intervals-1)
+    
+    tp = 0
+    fp = 0
+    tn = 0
+    fn = 0
+    
+    active = np.floor(infer+criteria)
+    
+    for c1 in xrange(cellcount):
+        for c2 in xrange(cellcount):
+            if c1==c2:
+                pass
+            else:                    
+                if adj[c1,c2]==0:
+                    if active[c1,c2]==0:
+                        tn = tn+1
+                    else:
+                        fp = fp+1
+                else:
+                    if active[c1,c2]>=1:
+                        tp = tp+1
+                    else:
+                        fn = fn+1
+                        
+    fpr = fp/TN #false positive rate (fall-out)
+    tpr = tp/TP #true positive rate (sensitivity)
+    fnr = fn/TP #false negative rate 
+    tnr = tn/TN #true negative rate (specificity)
+    
+    return [criteria,fpr,tpr,fnr,tnr]
 
 def detrend_dwt(t, data, bin_num):
     """Uses a dwt to detrend into the selected bin range"""
@@ -1262,9 +1315,583 @@ def radius_phase(phases):#, cells='all'):
     
     return length, ang, len(phases)
 
+# for resampling network clustering stuff
+def net_resample_pc(data):
+    
+    nodes = data[0]
+    edges = data[1]
+    p = edges/sum(range(nodes))
+    n = nodes
+    g2 = nx.gnp_random_graph(n,p)
+    try:
+        # network is connected
+        return [nx.average_shortest_path_length(g2), nx.average_clustering(g2)]
+    except:
+        #network is unconnected
+        subgraphs = nx.connected_component_subgraphs(g2)
+        gs = [g for g in subgraphs] # the graphs
+        ncs = [len(g.nodes()) for g in gs] #nodecounts
+        g = gs[np.argmax(ncs)] # the biggest subgraph
+
+        path_length = nx.average_shortest_path_length(g) 
+        clustering_coeff = nx.average_clustering(g)
+
+        return [path_length,clustering_coeff]
+
+def ipp_resample_path_cluster(nxgraphs,net_names,its=10000,myprofile='john'):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; import networkx as nx; reload(ni)')
+    
+    # will contain path, clustering info
+    nets_pc = dict()
+    for i,nxgraph in enumerate(nxgraphs):
+        name = net_names[i]
+        data = [[len(nxgraph.nodes()),len(nxgraph.edges())]]*its
+        info = dview.map_sync(net_resample_pc,data)
+        
+        nets_pc[name] = info
+        
+        
+    
+    end_time = time.time()-start_time
+    print end_time
+    return nets_pc
+
+
+# for quickly performing the analysis of fetal SCN data
+# generally run after the setup functions I defined elsewhere
+
+
+def pnet_analysis(net,**kwargs):
+    net.ls_periodogram(remove_dwt_trend=True)
+    net.ls_rhythmic_cells2(p=0.05)
+    net.detrend(detrend='dwt',dwt_bin_desired=3)
+    net.hilbert_transform(detrend='detrend_dwt',cells=net.rc)
+    net.times_of_period(cells=net.rc,
+                    data = 'detrend_dwt')
+    # only makes sense for parallel computation
+    return net
+
+def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days',**kwargs):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; reload(ni)')
+    new_nets = dview.map_sync(pnet_analysis,all_nets)
+    
+    end_time = time.time()-start_time
+    print end_time
+    
+    
+    # what was in the original dict
+    if data=='days':
+        development_list = ['e13','e14','e15','e17', 'p2']
+        e13_scns = ['scn1','scn2','scn3']
+        e14_scns = ['scn1','scn2','scn3','scn4','scn5',
+                    'scn6','scn7','scn8','scn9','scn10','scn11']
+        e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
+        e17_scns = ['scn1','scn2','scn3','scn4']
+        p2_scns = ['scn1','scn2','scn3']#,'scn4']
+        scns_list = [e13_scns, e14_scns, e15_scns, e17_scns, p2_scns]
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(development_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+            
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+        
+    if data=='antagonist':
+        xpt_list = ['e15a','e15v']
+        e15a_scns = ['scn1','scn2','scn3','scn4','scn5']
+        e15v_scns = ['scn1','scn2','scn3','scn4']
+        scns_list = [e15a_scns, e15v_scns]
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(xpt_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+        
+    return new_dict, new_nets
+
+
+# parallelization of the early and late analysis
+# returns the nets that are operated on for this reason
+def pearly_late_analysis(net_feed,  **kwargs):
+    length = 96
+    minlength=69
+    
+    snet = net_feed[0]
+    enet = net_feed[1]
+    
+    if np.max(enet.t['raw']) < minlength:
+        return [snet,enet]
+    elif np.max(snet.t['raw']) < minlength:       
+        return [snet,enet]
+    else:
+        snet.ls_periodogram(remove_dwt_trend=True)
+        enet.ls_periodogram(remove_dwt_trend=True)
+    
+        snet.ls_rhythmic_cells2(p=0.05)
+        enet.ls_rhythmic_cells2(p=0.05)
+        
+        snet.detrend(detrend='dwt',dwt_bin_desired=3)
+        snet.times_of_period(cells=snet.rc,
+               data = 'detrend_dwt')
+               
+        enet.detrend(detrend='dwt',dwt_bin_desired=3)
+        enet.times_of_period(cells=enet.rc,data = 'detrend_dwt')
+    
+    return [snet,enet]
+    
+    
+def ipp_early_late_analysis(start_dict,start_nets,end_dict,end_nets, myprofile='john', **kwargs):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    net_feed = []
+    for i,n in enumerate(start_nets):
+        net_feed.append([start_nets[i],end_nets[i]])
+
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import numpy as np;import network_inference as ni; reload(ni)')
+    new_nets = dview.map_sync(pearly_late_analysis,net_feed)
+    
+    snew_nets = []; enew_nets = []
+    for i in range(len(new_nets)):
+        snew_nets.append(new_nets[i][0])
+        enew_nets.append(new_nets[i][1])
+        
+    end_time = time.time()-start_time
+    print end_time
+    
+    
+    # what was in the original dict
+    development_list = ['e13','e14','e15','e17', 'p2']
+    e13_scns = ['scn1','scn2','scn3']
+    e14_scns = ['scn1','scn2','scn3','scn4','scn5',
+                'scn6','scn7','scn8','scn9','scn10','scn11']
+    e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
+    e17_scns = ['scn1','scn2','scn3','scn4']
+    p2_scns = ['scn1','scn2','scn3']#,'scn4']
+    scns_list = [e13_scns, e14_scns, e15_scns, e17_scns, p2_scns]
+    
+    # reconstruct dictionaries from the form of the original dict
+    snew_dict = collections.OrderedDict()
+    enew_dict = collections.OrderedDict()
+    net_counter = 0 #counts to add nets into the new_dict from new_nets 
+    
+    for i, day in enumerate(development_list):
+        
+        # new dictionary for each day
+        sday_dict = collections.OrderedDict()
+        eday_dict = collections.OrderedDict()
+        
+        # add elements for each SCN
+        for scn in scns_list[i]:
+            sday_dict.update({scn:new_nets[net_counter][0]})
+            eday_dict.update({scn:new_nets[net_counter][1]})
+            net_counter+=1
+        
+        #add the day to the new_dict
+        snew_dict.update({day:sday_dict})
+        enew_dict.update({day:eday_dict})
+        
+    return snew_dict,snew_nets,enew_dict,enew_nets
+
+def ipp_peaktimes(all_dict, all_nets,peak_ranges, myprofile='john',**kwargs):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; reload(ni)')
+    
+    pnet_data=[]
+    #attach peak time ranges to 
+    for i,net in enumerate(all_nets):
+        pnet_data.append([net,peak_ranges[i]])
+    
+    new_nets = dview.map_sync(ppeaktimes,pnet_data)
+    
+    end_time = time.time()-start_time
+    print end_time
+    
+    
+    # what was in the original dict
+    development_list = ['e13','e14','e15','e17', 'p2']
+    e13_scns = ['scn1','scn2','scn3']
+    e14_scns = ['scn1','scn2','scn3','scn4','scn5',
+                'scn6','scn7','scn8','scn9','scn10','scn11']
+    e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
+    e17_scns = ['scn1','scn2','scn3','scn4']
+    p2_scns = ['scn1','scn2','scn3']#,'scn4']
+    scns_list = [e13_scns, e14_scns, e15_scns, e17_scns, p2_scns]
+    
+    # reconstruct dictionaries from the form of the original dict
+    new_dict = collections.OrderedDict()
+    net_counter = 0 #counts to add nets into the new_dict from new_nets 
+    
+    for i, day in enumerate(development_list):
+        
+        # new dictionary for each day
+        day_dict = collections.OrderedDict()
+        
+        # add elements for each SCN
+        for scn in scns_list[i]:
+            day_dict.update({scn:new_nets[net_counter]})
+            net_counter+=1
+        
+        #add the day to the new_dict
+        new_dict.update({day:day_dict})
+        
+    return new_dict, new_nets
+
+def ppeaktimes(pnet_data):
+    net = pnet_data[0]
+    start_time = pnet_data[1][0]
+    end_time = pnet_data[1][1]
+    net.find_peaktimes(data='detrend_dwt',
+                       cells=net.rc,
+                       spline=True,
+                       tstart=start_time,
+                       tend=end_time)
+    return net
+
+# peak tools from the fetal SCN stuff 
+def bin_distance_ptime(distances,ptimes,bin_size=1.5):
+    min_dist = 0 # ref cell
+    max_dist = np.max(distances)
+    bin_num=int((max_dist-min_dist)/bin_size)
+    bins = np.linspace(min_dist,max_dist,bin_num)
+    digitized = np.digitize(distances,bins)
+    bin_means = [np.array(ptimes)[digitized == i].mean() for i in range(1, len(bins))]
+    
+    bin_centers = [np.mean([bins[i],bins[i+1]]) for i in range(len(bins)-1)]
+    return bin_centers,bin_means
+
+def radial_peak_time_map(net, ptime, ref_cell = None):
+    
+    # since the SCN mean peaks 12h after the start of the ptime label, the ref should add 12 
+    ref_ptime = ptime+12
+    
+    # can try a reference location in the middle of the SCN, that makes sense
+    if ref_cell == None:
+        all_loc = np.array(net.locations.values())
+        ref_loc = all_loc[0]
+        #ref_loc = np.array([(all_loc[:,0].max()+all_loc[:,0].min())/2, 
+        #                   (all_loc[:,1].max()+all_loc[:,1].min())/2])
+    else:
+        ref_loc = np.array(net.locations[ref_cell])
+    
+    distances = []
+    cellnums = []
+    ptimes = []
+    
+    for i, cell in enumerate(net.rc):
+        
+        # which cell we are doing this for
+        cellnums.append(cell)
+        
+        # what is that distance
+        distances.append(np.linalg.norm(
+                    np.array(net.locations[cell])-ref_loc))
+        
+        ptimes.append(net.ptimes[ptime][i]-ref_ptime)
+
+
+    return [cellnums,distances,ptimes]
+
+def resample_ptimes(distances,ptimes, p=0.05, its = 10000,bin_size=1.5):
+    assert(len(distances) == len(ptimes))
+    
+    ptimes_res = np.copy(ptimes) # this gets shuffled
+    resamples = []
+    
+    # now loop for the iterations
+    for i in range(its):
+        #randomize peak time
+        random.shuffle(ptimes_res)
+        bin_cs,bin_means = bin_distance_ptime(distances,ptimes_res,bin_size=bin_size)
+        resamples.append(bin_means)
+    
+    # do bonferroni correction
+    limit_of_significance = int(p*its/len(bin_cs))
+    
+    resamples = np.array(resamples)
+    resamples.sort(0)
+    
+    maxs = resamples[limit_of_significance,:]
+    mins = resamples[-1*(1+limit_of_significance),:]
+    
+    return mins,maxs
+
+def ipp_significance(all_dict, all_nets,all_ref_list, data='days', myprofile='john',**kwargs):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; reload(ni); import random; from network_inference import radial_peak_time_map,bin_distance_ptime,resample_ptimes')
+    
+    sig_data=[]
+    #attach peak time ranges to 
+    for i,net in enumerate(all_nets):
+        sig_data.append([net,all_ref_list[i]])
+    
+    new_nets = dview.map_sync(psignificance,sig_data)
+    
+    end_time = time.time()-start_time
+    print end_time
+    
+    if data=='days':
+        # what was in the original dict
+        development_list = ['e13','e14','e15','e17', 'p2']
+        e13_scns = ['scn1','scn2','scn3']
+        e14_scns = ['scn1','scn2','scn3','scn4','scn5',
+                    'scn6','scn7','scn8','scn9','scn10','scn11']
+        e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
+        e17_scns = ['scn1','scn2','scn3','scn4']
+        p2_scns = ['scn1','scn2','scn3']#,'scn4']
+        scns_list = [e13_scns, e14_scns, e15_scns, e17_scns, p2_scns]
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(development_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+            
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+    
+
+        
+    return new_dict, new_nets
+
+def psignificance(sig_data):
+    
+    #setup
+    net = sig_data[0]
+    if len(net.rc)< 2:
+        # eliminate networks where we can't find a distribution anyway (0 or 1 peak)
+        return net
+    
+    ptime = net.ptimes.keys()[0]
+    ref_cell = sig_data[1]
+    
+    # heavy lifting
+    peak_data = radial_peak_time_map(net, ptime, ref_cell = ref_cell)
+    bin_centers,bin_means = bin_distance_ptime(peak_data[1],peak_data[2],bin_size=1.5)
+    maxs,mins = resample_ptimes(peak_data[1],peak_data[2], p=0.05, its = 10000)
+    
+    net.significance_dict = {'mins':mins,'maxs':maxs,'bin_centers':bin_centers,
+                             'bin_means':bin_means,'peak_data':peak_data
+                             }
+    return net
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def ipp_net_sig(all_nets,ref_list, myprofile='john',**kwargs):
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni; reload(ni); import random; from network_inference import *')
+    
+    sig_data=[]
+    #attach peak time ranges to 
+    for i,net in enumerate(all_nets):
+        sig_data.append([net,ref_list[i]])
+    
+    new_nets = dview.map_sync(net_significance,sig_data)
+    
+    end_time = time.time()-start_time
+    print end_time
+
+        
+    return new_nets
+
+
+
+
+
+
+# FOR FUNCTIONAL NETWORK INFERENCE, WE CARE IF THERE IS A CORE and SHELL IN ND
+
+def radial_lognd_time_map(net, ref_cell = None):
+    
+    # either use ref location or ref cell
+    if ref_cell==None:
+        all_loc = np.array(net.locations.values())
+        ref_loc = np.array([(all_loc[:,0].max()+all_loc[:,0].min())/2, 
+                   (all_loc[:,1].max()+all_loc[:,1].min())/2])
+    elif len(ref_cell)==2:
+        ref_loc = ref_cell
+    else:
+        ref_loc = np.array(net.locations[ref_cell])
+    
+    distances = []
+    cellnums = []
+    lognd = []
+    
+    for i in range(net.nodecount):
+        
+        cell=i
+        # which cell we are doing this for
+        cellnums.append(i)
+        
+        # what is that distance
+        distances.append(np.linalg.norm(
+                    np.array(net.locations[cell])-ref_loc))
+        
+        lognd.append(np.max([np.log(net.nx_graph.degree()[i]+1),0]))
+
+
+    return [cellnums,distances,lognd]
+
+
+
+def net_significance(net_ref):
+    
+    net = net_ref[0]
+    ref = net_ref[1]
+    
+    # heavy lifting
+    cellnums,distances,lognds = radial_lognd_time_map(net,ref_cell=ref)
+    bin_centers,bin_means = bin_distance_ptime(distances,lognds,bin_size=15)
+    maxs,mins = resample_ptimes(distances,lognds, p=0.025, its = 10000,bin_size=15)
+    
+    net.connections_sig_dict = {'mins':mins,'maxs':maxs,'bin_centers':bin_centers,
+                             'bin_means':bin_means, 'sig_data':[cellnums,distances,lognds]
+                             }
+    return net
+
+
+
+def ipp_simulate_adjacency(model,adjacency, save_path, ensembles):
+    
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    #include necessary imports for function
+    dview.execute('import network_inference as ni;'+\
+                    'reload(ni); import random;'+\
+                    'from network_inference import *;'+\
+                    'import '+model+' as model;')
+    
+    #loop here
+    seeds = range(ensembles)
+    
+    sim_data = []
+    for seed in seeds:
+        sim_data.append([seed,adjacency,save_path])
+    
+    
+    dview.map_sync(par_sim,sim_data)
+
+    end_time = time.time()-start_time
+    print end_time
+
+def par_sim(sim_data):
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),model.y0in,model.param)
 
 
 
