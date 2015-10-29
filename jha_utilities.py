@@ -15,6 +15,7 @@ from scipy.interpolate import (splrep, splint, fitpack, splev,
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.pyplot as plt
 from ColorMapCreator import ColorMapCreator
+from time import time
 
 def roots(data,times=None):
     """
@@ -31,6 +32,24 @@ def roots(data,times=None):
 
     return s.roots()
 
+class laptimer:
+    """
+    Whenever you call it, it times laps.
+    """
+    
+    def __init__(self):
+        self.time = time()
+
+    def __call__(self):
+        ret = time() - self.time
+        self.time = time()
+        return ret
+
+    def __str__(self):
+        return "%.3E"%self()
+
+    def __repr__(self):
+        return "%.3E"%self()
 
 class fnlist(list):
     # from Peter's things

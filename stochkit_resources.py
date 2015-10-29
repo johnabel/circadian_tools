@@ -79,7 +79,7 @@ import pdb
     
 """
 
-algorithmlocation = "/home/john/NumericalPackages/StochKit2.0.10/ssa"
+algorithmlocation = "/home/abel/NumericalPackages/stochsolvers-gillespy/StochKit2.0.11/ssa"
 
 
 class Model(object):

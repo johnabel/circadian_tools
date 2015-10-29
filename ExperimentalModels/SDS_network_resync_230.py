@@ -15,7 +15,7 @@ import random
 
 EqCount = 11
 ParamCount = 35
-modelversion='SDSnet'
+modelversion='SDSnet230_'
 
 
 period = 23.7000
@@ -56,23 +56,23 @@ def ODEmodel():
     #==================================================================
     #State variable definitions
     #==================================================================
-    p    = cs.ssym("p")
-    c1   = cs.ssym("c1")
-    c2   = cs.ssym("c2")
-    vip  = cs.ssym("vip")
-    P    = cs.ssym("P")
-    C1   = cs.ssym("C1")
-    C2   = cs.ssym("C2")
-    eVIP = cs.ssym("eVIP")
-    C1P  = cs.ssym("C1P")
-    C2P  = cs.ssym("C2P")
-    CREB = cs.ssym("CREB")
+    p    = cs.SX.sym("p")
+    c1   = cs.SX.sym("c1")
+    c2   = cs.SX.sym("c2")
+    vip  = cs.SX.sym("vip")
+    P    = cs.SX.sym("P")
+    C1   = cs.SX.sym("C1")
+    C2   = cs.SX.sym("C2")
+    eVIP = cs.SX.sym("eVIP")
+    C1P  = cs.SX.sym("C1P")
+    C2P  = cs.SX.sym("C2P")
+    CREB = cs.SX.sym("CREB")
     
     #for Casadi
     y = cs.vertcat([p, c1, c2, vip, P, C1, C2, eVIP, C1P, C2P, CREB])
     
     # Time Variable
-    t = cs.ssym("t")
+    t = cs.SX.sym("t")
     
     
     #===================================================================
@@ -80,46 +80,46 @@ def ODEmodel():
     #===================================================================
     
     #mRNA
-    vtpp    = cs.ssym("vtpp")
-    vtpr = cs.ssym("vtpr")
-    vtc1r   = cs.ssym("vtc1r")
-    vtc2r   = cs.ssym("vtc2r")
-    knpr   = cs.ssym("knpr")
-    kncr   = cs.ssym("kncr")
-    vtvr   = cs.ssym("vtvr")
-    knvr   = cs.ssym("knvr")
+    vtpp    = cs.SX.sym("vtpp")
+    vtpr = cs.SX.sym("vtpr")
+    vtc1r   = cs.SX.sym("vtc1r")
+    vtc2r   = cs.SX.sym("vtc2r")
+    knpr   = cs.SX.sym("knpr")
+    kncr   = cs.SX.sym("kncr")
+    vtvr   = cs.SX.sym("vtvr")
+    knvr   = cs.SX.sym("knvr")
     
-    vdp    = cs.ssym("vdp")         #degradation of per
-    vdc1   = cs.ssym("vdc1")        #degradation of cry1
-    vdc2   = cs.ssym("vdc2")        #degradation of cry2
-    kdp    = cs.ssym("kdp")         #degradation of per
-    kdc    = cs.ssym("kdc")         #degradation of cry1 and 2
-    vdv    = cs.ssym("vdv")         #degradation of vip
-    kdv    = cs.ssym("kdv")         #degradation of vip
+    vdp    = cs.SX.sym("vdp")         #degradation of per
+    vdc1   = cs.SX.sym("vdc1")        #degradation of cry1
+    vdc2   = cs.SX.sym("vdc2")        #degradation of cry2
+    kdp    = cs.SX.sym("kdp")         #degradation of per
+    kdc    = cs.SX.sym("kdc")         #degradation of cry1 and 2
+    vdv    = cs.SX.sym("vdv")         #degradation of vip
+    kdv    = cs.SX.sym("kdv")         #degradation of vip
     
     #Proteins
-    vdP    = cs.ssym("vdP")         #degradation of Per
-    vdC1   = cs.ssym("vdC1")        #degradation of Cry1
-    vdC2   = cs.ssym("vdC2")        #degradation of Cry2
-    vdC1n   = cs.ssym("vdC1n")        #degradation of Cry1-Per or Cry2-Per complex into nothing (nuclear)
-    vdC2n   = cs.ssym("vdC2n")
-    kdP    = cs.ssym("kdP")         #degradation of Per
-    kdC    = cs.ssym("kdC")         #degradation of Cry1 & Cry2
-    kdCn   = cs.ssym("kdCn")        #degradation of Cry1-Per or Cry2-Per complex into nothing (nuclear)
-    vaCP   = cs.ssym("vaCP")        #formation of Cry1-Per or Cry2-Per complex
-    vdCP   = cs.ssym('vdCP')        #degradation of Cry1-Per or Cry2-Per into components in ctyoplasm
-    ktlnp  = cs.ssym('ktlnp')       #translation of per
-    ktlnc  = cs.ssym('ktlnc')
+    vdP    = cs.SX.sym("vdP")         #degradation of Per
+    vdC1   = cs.SX.sym("vdC1")        #degradation of Cry1
+    vdC2   = cs.SX.sym("vdC2")        #degradation of Cry2
+    vdC1n   = cs.SX.sym("vdC1n")        #degradation of Cry1-Per or Cry2-Per complex into nothing (nuclear)
+    vdC2n   = cs.SX.sym("vdC2n")
+    kdP    = cs.SX.sym("kdP")         #degradation of Per
+    kdC    = cs.SX.sym("kdC")         #degradation of Cry1 & Cry2
+    kdCn   = cs.SX.sym("kdCn")        #degradation of Cry1-Per or Cry2-Per complex into nothing (nuclear)
+    vaCP   = cs.SX.sym("vaCP")        #formation of Cry1-Per or Cry2-Per complex
+    vdCP   = cs.SX.sym('vdCP')        #degradation of Cry1-Per or Cry2-Per into components in ctyoplasm
+    ktlnp  = cs.SX.sym('ktlnp')       #translation of per
+    ktlnc  = cs.SX.sym('ktlnc')
     
     #Signalling
-    vdVIP = cs.ssym("vdVIP")
-    kdVIP = cs.ssym("kdVIP")
-    vdCREB= cs.ssym("vdCREB")
-    kdCREB= cs.ssym("kdCREB")
-    ktlnv = cs.ssym("ktlnv")
-    vgpka = cs.ssym("vgpka")
-    kgpka = cs.ssym("kgpka")
-    kcouple = cs.ssym("kcouple")    #necessary for stochastic model, does not need to be fit
+    vdVIP = cs.SX.sym("vdVIP")
+    kdVIP = cs.SX.sym("kdVIP")
+    vdCREB= cs.SX.sym("vdCREB")
+    kdCREB= cs.SX.sym("kdCREB")
+    ktlnv = cs.SX.sym("ktlnv")
+    vgpka = cs.SX.sym("vgpka")
+    kgpka = cs.SX.sym("kgpka")
+    kcouple = cs.SX.sym("kcouple")    #necessary for stochastic model, does not need to be fit
 
     paramset = cs.vertcat([vtpr  , vtc1r , vtc2r  , knpr   , kncr   , 
                            vdp   , vdc1  , vdc2   , kdp    , kdc    ,
@@ -169,14 +169,15 @@ def ODEmodel():
     #==================================================================
     # Stochastic Model Portion
     #==================================================================
-def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
+def ssa_desync(fn,y0in,param,cellcount,adjacency=0):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
     
     To uncouple the model, set adjacency matrix to zeros    
     """
-    
+    if adjacency==0:
+        adjacency = np.zeros([cellcount,cellcount])
     #Converts concentration to population
     y0in_ssa = (vol*y0in).astype(int)
     
@@ -191,9 +192,9 @@ def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
     for indx in range(cellcount):
         index = '_'+str(indx)+'_0'
         #loops to include all species, normally this is the only line needed without index
-        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        species_array = species_array + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]
-        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        state_names = state_names + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]  
            
         y0in_pop = np.append(y0in_pop, y0in_ssa)       
@@ -202,9 +203,9 @@ def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
 
     #===========================================
             
-    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_array   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_names   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
     #Names model
     SSAmodel = stk.StochKitModel(name=modelversion)
@@ -272,7 +273,7 @@ def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
         
     return SSAmodel,state_names,param_names
     
-def ssa_resync(fn,y0in_desync,param,adjacency):
+def ssa_resync(fn,y0in_desync,param,cellcount,adjacency):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -294,9 +295,9 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
     for indx in range(cellcount):
         index = '_'+str(indx)+'_0'
         #loops to include all species, normally this is the only line needed without index
-        species_array = species_array + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        species_array = species_array + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]
-        state_names = state_names + [fn.inputSX(cs.DAE_X)[i].getDescription()+index
+        state_names = state_names + [fn.inputExpr(cs.DAE_X)[i].getName()+index
                         for i in xrange(EqCount)]  
         if randomy0==False:                
             y0in_pop = np.append(y0in_pop, y0in_ssa)       
@@ -309,9 +310,9 @@ def ssa_resync(fn,y0in_desync,param,adjacency):
 
     #===========================================
             
-    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_array   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_names   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
     #Names model
     SSAmodel = stk.StochKitModel(name=modelversion)

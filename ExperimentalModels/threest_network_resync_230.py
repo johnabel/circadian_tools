@@ -18,9 +18,9 @@ import matplotlib.pyplot as plt
 
 EqCount = 3
 ParamCount = 13
-modelversion='threest'
+modelversion='threest230_'
 
-cellcount=191
+
 
 period = 23.7000
 couplingstr = 0.005 #default is 1
@@ -117,14 +117,15 @@ def ODEmodel():
     #==================================================================
     # Stochastic Model Portion
     #==================================================================
-def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
+def ssa_desync(fn,y0in,param,cellcount,adjacency=0):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
     
     To uncouple the model, set adjacency matrix to zeros    
     """
-    
+    if adjacency == 0:
+        adjacency = np.zeros([cellcount,cellcount])
     #Converts concentration to population
     y0in_ssa = (vol*y0in).astype(int)
     
@@ -219,7 +220,7 @@ def ssa_desync(fn,y0in,param,adjacency=np.zeros([cellcount,cellcount])):
 
     return SSAmodel,state_names,param_names
     
-def ssa_resync(fn,y0in_desync,param,adjacency):
+def ssa_resync(fn,y0in_desync,param,cellcount,adjacency):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)

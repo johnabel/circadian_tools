@@ -15,21 +15,32 @@ import numpy as np
 import casadi as cs
 import pylab as pl
 import matplotlib.pyplot as plt
+import jha_utilities as jha
 import pdb
 from scipy import signal
 from scipy.interpolate import splrep, splev, UnivariateSpline
 
 
-class CircEval(object):
+class Oscillator(object):
     """
-    This circadian evaluator class is for deterministic ODE simulations.
+    This circadian oscillator class is for deterministic ODE simulations.
     """
     
-    def __init__(self,model,param,y0):
+    def __init__(self, model, param, y0=None, period_guess=24.):
         """
-        Setup the required information
+        Setup the required information.
+        ----
+        model : casadi.sxfunction
+            model equations, sepecified through an integrator-ready
+            casadi sx function
+        paramset : iterable
+            parameters for the model provided. Must be the correct length.
+        y0 : optional iterable
+            Initial conditions, specifying where d(y[0])/dt = 0
+            (maximum) for the first state variable.
         """
         self.model = model
+        self.modifiedModel()
         self.neq = self.model.input(cs.DAE_X).size()
         self.npa = self.model.input(cs.DAE_P).size()
         
@@ -57,100 +68,69 @@ class CircEval(object):
         for i in range(self.npa):
             self.param_dict[self.plabels[i]] = self.param[i]
         
-        self.iv_ydict = {v: k for k, v in self.ydict.items()}
-        self.iv_pdict = {v: k for k, v in self.pdict.items()}
+        self.inverse_ydict = {v: k for k, v in self.ydict.items()}
+        self.inverse_pdict = {v: k for k, v in self.pdict.items()}
+        
         self.intoptions = {
-                'y0tol'            : 1E-9,
-                'sintmethod'       : 'staggered',
-                'intabstol'        : 1E-10,
-                'intreltol'        : 1E-10,
-                'intmaxstepcount'  : 50000,
+            'y0tol'            : 1E-3,
+            'bvp_ftol'         : 1E-10,
+            'bvp_abstol'       : 1E-12,
+            'bvp_reltol'       : 1E-10,
+            'sensabstol'       : 1E-11,
+            'sensreltol'       : 1E-9,
+            'sensmaxnumsteps'  : 80000,
+            'sensmethod'       : 'staggered',
+            'transabstol'      : 1E-4,
+            'transreltol'      : 1E-4,
+            'transmaxnumsteps' : 5000,
+            'lc_abstol'        : 1E-11,
+            'lc_reltol'        : 1E-9,
+            'lc_maxnumsteps'   : 40000,
+            'lc_res'           : 200,
+            'int_abstol'       : 1E-8,
+            'int_reltol'       : 1E-6,
+            'int_maxstepcount' : 40000
                 }
 
         if y0 is None:
-            self.y0 = np.ones(self.EqnCount)
-        else: 
-            self.y0 = y0       
-            
-            
-    #========================================================================
-    #                   ODE INTEGRATION
-    #======================================================================== 
-          
-    def intODEs(self, y0=None, tf = 1000.0, numsteps = 1000):
-        """
-        This function integrates the ODEs until well past the transients. Inputs:
-            tf          -   the final time of integration. the number of time steps within [0,tf] is below,
-                            set usually to 1000
-            numsteps    -   the number of steps in the integration.
-        """
-        if y0==None: y0 = self.y0
-
-        self.integrator = cs.Integrator('cvodes',self.model)
-
-        #Set up the tolerances etc.
-        self.integrator.setOption("abstol", self.intoptions['intabstol'])
-        self.integrator.setOption("reltol", self.intoptions['intreltol'])
-        self.integrator.setOption("max_num_steps", self.intoptions['intmaxstepcount'])
-        self.integrator.setOption("tf",tf)
-        
-        #Let's integrate
-        self.integrator.init()
-        self.ts = np.linspace(0,tf,numsteps)
-        
-        
-        self.integrator.setInput((y0[:]),cs.INTEGRATOR_X0)
-        self.integrator.setInput(self.param,cs.INTEGRATOR_P)
-        self.integrator.evaluate()
-        self.integrator.reset()
-        
-        def out(t):
-            self.integrator.integrate(t)
-            self.integrator.output().toArray()
-            return self.integrator.output().toArray().squeeze()
-        
-        sol = np.array([out(t) for t in self.ts]).T
-        return sol
+            self.y0 = 5*np.ones(self.NEQ+1)
+            self.calcY0(25*period_guess)
+        else: self.y0 = np.asarray_chkfinite(y0)     
     
-    def burnTransient(self,tf = 1000, numsteps = 10000):
-        """
-        This function integrates the ODEs until well past the transients returning only a value
-        for LCpoint on the limit cycle.
-            tf          -   the final time of integration.
-            numsteps    -   the number of steps in the integration.
-        """
-
-        self.integrator = cs.Integrator('cvodes',self.model)
-
-        #Set up the tolerances etc.
-        self.integrator.setOption("abstol", self.intoptions['intabstol'])
-        self.integrator.setOption("reltol", self.intoptions['intreltol'])
-        self.integrator.setOption("max_num_steps", self.intoptions['intmaxstepcount'])
-        self.integrator.setOption("tf",tf)
-        
-        #Let's integrate
-        self.integrator.init()
-        self.ts = np.linspace(0,tf,numsteps)
-              
-        self.integrator.setInput((self.y0[:]),cs.INTEGRATOR_X0)
-        self.integrator.setInput(self.param,cs.INTEGRATOR_P)
-        self.integrator.evaluate()
-        self.integrator.reset()
-        
-        def out(t):
-            self.integrator.integrate(t)
-            self.integrator.output().toArray()
-            return self.integrator.output().toArray().squeeze()
-        
-        LCpoint = np.array([out(tf)]).squeeze()
-        self.y0 = LCpoint
-        return LCpoint
+    # shortcuts
+    def _phi_to_t(self, phi): return phi*self.y0[-1]/(2*np.pi)
+    def _t_to_phi(self, t): return (2*np.pi)*t/self.y0[-1]
     
-        
-    def intODEs_sim(self, tf, y0=None, numsteps=10000):
+    
+    def modifiedModel(self):
         """
-        This function integrates the ODEs until well past the transients. This uses Casadi's simulator
-        class, C++ wrapped in swig. Inputs:
+        Creates a new casadi model with period as a parameter, such that
+        the model has an oscillatory period of 1. Necessary for the
+        exact determinination of the period and initial conditions
+        through the BVP method. (see Wilkins et. al. 2009 SIAM J of Sci
+        Comp)
+        """
+
+        pSX = self.model.inputExpr(cs.DAE_P)
+        T = cs.SX.sym("T")
+        pTSX = cs.vertcat([pSX, T])
+        
+        t = self.model.inputExpr(cs.DAE_T)
+        sys = self.model.inputExpr(cs.DAE_X)
+        ode = self.model.outputExpr()[0]*T
+        
+        self.modlT = cs.SXFunction(
+            cs.daeIn(t=t,x=sys,p=pTSX),
+            cs.daeOut(ode=ode)
+            )
+
+        self.modlT.setOption("name","T-shifted model")  
+        
+        
+    def int_odes(self, tf, y0=None, numsteps=10000, return_endpt=False):
+        """
+        This function integrates the ODEs until well past the transients. 
+        This uses Casadi's simulator class, C++ wrapped in swig. Inputs:
             tf          -   the final time of integration.
             numsteps    -   the number of steps in the integration is the second argument
         """
@@ -159,686 +139,364 @@ class CircEval(object):
         self.integrator = cs.Integrator('cvodes',self.model)
         
         #Set up the tolerances etc.
-        self.integrator.setOption("abstol", self.intoptions['intabstol'])
-        self.integrator.setOption("reltol", self.intoptions['intreltol'])
-        self.integrator.setOption("max_num_steps", self.intoptions['intmaxstepcount'])
-        pdb.set_trace()
+        self.integrator.setOption("abstol", self.intoptions['int_abstol'])
+        self.integrator.setOption("reltol", self.intoptions['int_reltol'])
+        self.integrator.setOption("max_num_steps", self.intoptions['int_maxstepcount'])
         self.integrator.setOption("tf",tf)
         
         #Let's integrate
         self.integrator.init()
         self.ts = np.linspace(0,tf, numsteps, endpoint=False)
-        
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
         self.simulator.setInput((y0[:]),cs.INTEGRATOR_X0)
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
-	
-        self.sol = self.simulator.output().toArray().T
-        return self.simulator.output().toArray().T
-
-    def burnTransient_sim(self, tf=1000, numsteps=10000):
-        """
-        This function integrates the ODEs until well past the transients. This uses Casadi's simulator
-        class, C++ wrapped in swig. Inputs:
-            tf          -   the final time of integration.
-            numsteps    -   the number of steps in the integration is the second argument
-        """
-        
-        self.integrator = cs.Integrator('cvodes',self.model)
-
-        #Set up the tolerances etc.
-        self.integrator.setOption("abstol", self.intoptions['intabstol'])
-        self.integrator.setOption("reltol", self.intoptions['intreltol'])
-        self.integrator.setOption("max_num_steps", self.intoptions['intmaxstepcount'])
-        self.integrator.setOption("tf",tf)
-        
-        #Let's integrate
-        self.integrator.init()
-        self.ts = np.linspace(0,tf, numsteps)
-        
-        self.simulator = cs.Simulator(self.integrator, self.ts)
-        self.simulator.init()
-        self.simulator.setInput((self.y0[:]),cs.INTEGRATOR_X0)
-        self.simulator.setInput(self.param,cs.INTEGRATOR_P)
-        self.simulator.evaluate()
-        ss= self.simulator.output().toArray()
-
-        self.y0 = ss[-1]
-
-
-        return ss[-1]
-
-
-    #========================================================================
-    #                   Period Finding, Limit Cycle Identification
-    #========================================================================  
+        	
+        sol = self.simulator.output().toArray().T
+                
+        if return_endpt==True:
+            return sol[-1]
+        else:
+            return sol
     
-    def find_period(self,t=None,sol=None,StateVar=None):
-        """ This function will find the period of a solution of the system of
-        ODEs. If there is no period, it will return a negative value. The
-        inputs to this function are:
-            
-            t           -   the 1D array of time values 
-            sol         -   the
-            solution array for the state variables. the period is
-            calculated from the first state variable, but the zero
-            crossings of the other state variables are also tested to
-            ensure that the solution is periodic in all state variables
-            perCount    -   the number of periods to take before
-            determining the standard deviation default value is 8.
-                            
-        Sequence of operations: 1. remove first 30% of t and sol values
-        (cut transient) 2. subtract mean from sol, create index of 0s 3.
-        find the times at which it crosses 0 4. determine each period
-        length for first perCount periods 5. take standard deviation of
-        periods, if less than pertol, accept.  6. check to ensure that
-        other parameters are oscillating as well.  7. if too high stdev, or 
-        not enough 0s, return -1.  8. else, return period.
-                                
-                                **period as an output returns [period or
-                                error number, stdev] """
+    def burn_trans(self,tf=500.):
+        """
+        integrate the solution until tf, return only the endpoint
+        """
+        self.y0 = self.int_odes(tf, return_endpt=True)
+        
+    
+    
+    def solve_bvp(self, method='casadi', backup='casadi'):
+        """
+        Chooses between available solver methods to solve the boundary
+        value problem. Backup solver invoked in case of failure
+        """
+        available = {
+            #'periodic' : self.solveBVP_periodic,
+            'casadi'   : self.solve_bvp_casadi
+            ,'scipy'    : self.solve_bvp_scipy
+            }
+
+        y0in = np.array(self.y0)
+
+        return available[method]()
+        try: return 0        
+        except Exception:
+            self.y0 = np.array(y0in)
+            try: return available[backup]()
+            except Exception:
+                self.y0 = y0in
+                self.approxY0(tol=1E-4)
+                return available[method]()
+    
+    def solve_bvp_scipy(self, root_method='hybr'):
+        """
+        Use a scipy optimize function to optimize the BVP function
+        """
+
+        # Make sure inputs are the correct format
+        paramset = list(self.param)
+
+        
+        # Here we create and initialize the integrator SXFunction
+        self.bvpint = cs.Integrator('cvodes',self.modlT)
+        self.bvpint.setOption('abstol',self.intoptions['bvp_abstol'])
+        self.bvpint.setOption('reltol',self.intoptions['bvp_reltol'])
+        self.bvpint.setOption('tf',1)
+        self.bvpint.setOption('disable_internal_warnings', True)
+        self.bvpint.setOption('fsens_err_con', True)
+        self.bvpint.init()
+
+        def bvp_minimize_function(x):
+            """ Minimization objective. X = [y0,T] """
+            # perhaps penalize in try/catch?
+            if np.any(x < 0): return np.ones(3)
+            self.bvpint.setInput(x[:-1], cs.INTEGRATOR_X0)
+            self.bvpint.setInput(paramset + [x[-1]], cs.INTEGRATOR_P)
+            self.bvpint.evaluate()
+            out = x[:-1] - self.bvpint.output().toArray().flatten()
+            out = out.tolist()
+
+            self.modlT.setInput(x[:-1], cs.DAE_X)
+            self.modlT.setInput(paramset + [x[-1]], 2)
+            self.modlT.evaluate()
+            out += self.modlT.output()[0].toArray()[0].tolist()
+            return np.array(out)
+        
+        from scipy.optimize import root
+
+        options = {}
+
+        root_out = root(bvp_minimize_function, np.append(self.y0, self.T),
+                        tol=self.intoptions['bvp_ftol'],
+                        method=root_method, options=options)
+
+        # Check solve success
+        if not root_out.status:
+            raise RuntimeError("bvpsolve: " + root_out.message)
+
+        # Check output convergence
+        if np.linalg.norm(root_out.qtf) > self.intoptions['bvp_ftol']*1E4:
+            raise RuntimeError("bvpsolve: nonconvergent")
+
+        # save output to self.y0
+        self.y0 = root_out.x[:-1]
+        self.T = root_out.x[-1]
+        
+    def solve_bvp_casadi(self):
+        """
+        Uses casadi's interface to sundials to solve the boundary value
+        problem using a single-shooting method with automatic differen-
+        tiation.
+        
+        Related to PCSJ code. 
+        """
+
+        self.bvpint = cs.Integrator('cvodes',self.modlT)
+        self.bvpint.setOption('abstol',self.intoptions['bvp_abstol'])
+        self.bvpint.setOption('reltol',self.intoptions['bvp_reltol'])
+        self.bvpint.setOption('tf',1)
+        self.bvpint.setOption('disable_internal_warnings', True)
+        self.bvpint.setOption('fsens_err_con', True)
+        self.bvpint.init()
+        
+        # Vector of unknowns [y0, T]
+        V = cs.MX.sym("V",self.neq+1)
+        y0 = V[:-1]
+        T = V[-1]
+        param = cs.vertcat([self.param, T])
+        self.bvpint.setInput(x[:-1], cs.INTEGRATOR_X0)
+        self.bvpint.setInput(paramset + [x[-1]], cs.INTEGRATOR_P)
+        yf = self.bvpint.call(cs.integratorIn(x0=y0,p=param))[0]
+        fout = self.modlT.call(cs.daeIn(t=T, x=y0,p=param))[0]
+        
+        # objective: continuity
+        obj = (yf - y0)**2  # yf and y0 are the same ..i.e. 2 ends of periodic fcn
+        obj.append(fout[0]) # y0 is a peak for state 0, i.e. fout[0] is slope state 0
+        
+        #set up the matrix we want to solve
+        F = cs.MXFunction([V],[obj])
+        F.init()
+        guess = np.append(self.y0,24)
+        solver = cs.ImplicitFunction('kinsol',F)
+        solver.setOption('abstol',self.intoptions['bvp_ftol'])
+        solver.setOption('strategy','linesearch')
+        solver.setOption('exact_jacobian', False)
+        solver.setOption('pretype', 'both')
+        solver.setOption('use_preconditioner', True)
+        solver.setOption('constraints', (2,)*(self.neq+1))
+        solver.setOption('linear_solver_type', 'dense')
+        solver.init()
+        solver.setInput(guess)
+        solver.evaluate()
+        
+        sol = solver.output().toArray().squeeze()
+        
+        self.y0 = sol[:-1]
+        self.T = sol[-1]
+
+
+    def dydt(self,y):
+        """
+        Function to calculate model for given y.
+        """
+        try:
+            out = []
+            for yi in y:
+                assert len(yi) == self.NEQ
+                self.model.setInput(yi,cs.DAE_X)
+                self.model.setInput(self.param,cs.DAE_P)
+                self.model.evaluate()
+                out += [self.model.output().toArray().flatten()]
+            return np.array(out)
+        
+        except (AssertionError, TypeError):
+            self.model.setInput(y,cs.DAE_X)
+            self.model.setInput(self.param,cs.DAE_P)
+            self.model.evaluate()
+            return self.model.output().toArray().flatten()
+
+        
+    def dfdp(self,y,p=None):
+        """
+        Function to calculate model jacobian for given y and p.
+        """
+        if p is None: p = self.param
+
+        try:
+            out = []
+            for yi in y:
+                assert len(yi) == self.NEQ
+                self.jacp.setInput(yi,cs.DAE_X)
+                self.jacp.setInput(p,cs.DAE_P)
+                self.jacp.evaluate()
+                out += [self.jacp.output().toArray()]
+            return np.array(out)
+        
+        except (AssertionError, TypeError):
+            self.jacp.setInput(y,cs.DAE_X)
+            self.jacp.setInput(p,cs.DAE_P)
+            self.jacp.evaluate()
+            return self.jacp.output().toArray()
+
+        
+    def dfdy(self,y,p=None):
+        """
+        Function to calculate model jacobian for given y and p.
+        """
+        if p is None: p = self.param
+        try:
+            out = []
+            for yi in y:
+                assert len(yi) == self.NEQ
+                self.jacy.setInput(yi,cs.DAE_X)
+                self.jacy.setInput(p,cs.DAE_P)
+                self.jacy.evaluate()
+                out += [self.jacy.output().toArray()]
+            return np.array(out)
+        
+        except (AssertionError, TypeError):
+            self.jacy.setInput(y,cs.DAE_X)
+            self.jacy.setInput(p,cs.DAE_P)
+            self.jacy.evaluate()
+            return self.jacy.output().toArray()
+
+    
+    def approx_y0_T(self, tout=300, burn_trans=True, tol=1E-3):
+        """ 
+        Approximates the period and y0 to the given tol, by integrating,
+        creating a spline representation, and comparing the max values using
+        state 0.        
+        """
         from jha_utilities import roots
         
-        if sol == None:
-            sol = self.sol
-        if t==None:
-            t = self.ts
+        if burn_trans==True:
+            self.burn_trans()
         
-        #takes mean values of each state variable, subtracts mean so that the oscillations occur about 0
-        if StateVar:
-            stateindex = self.ydict[StateVar]
-        else: stateindex=0
+        states = self.int_odes(tout)
+        ref_state = states[:,0]
+        time = self.ts
         
-        sol_norm = sol[:,stateindex]-sol[:,stateindex].mean()    
+        # create a spline representation of the first state, k=4 so deriv k=3
+        spl = UnivariateSpline(time, ref_state, k=4, s=0)
+        time_spl = np.arange(0,tout,tol)
+        
+        #finds roots of splines
+        roots = spl.derivative(n=1).roots() #der of spline
 
-        zero_arr = roots(sol_norm,t)
-        
-        if len(zero_arr) < 6:
-            period = [-2, 'stable']
-            return period
-                        
-        period_array = np.zeros(int(len(zero_arr)/2)-1)
+        # gives y0 and period by finding second deriv.        
+        peaks_of_roots = np.where(spl.derivative(n=2)(roots) < 0)
+        peaks = roots[peaks_of_roots]
+        periods = np.diff(peaks)
 
-        for i in range(int(len(zero_arr)/2)-1):
-            period_array[i] = zero_arr[2*i+2]-zero_arr[2*i]
-        
-
-        per = np.mean(period_array)
-        stdevper = np.std(period_array)
-        
-        if np.isnan(per):
-            period = [-5, 'nan']
-            return period
-        
-        if stdevper > 0.01*per:
-            period = [-3, per, stdevper]
-            return period
-           
-        period = [per, stdevper]
-        
-        self.period = per
-        
-        return period
-        
-
-
-
-
-
-    def find_y0(self, StateVar=None):
-        """
-        Identifies a point on the limit cycle such that the first state variable is at 0,
-        sets this to the y0.
-        
-        Circadian dawn is the time 7hours before the concentration of Per/Cry mRNA peaks.
-        0-12 day, 12-24 night
-        Inputs:
-            t - time. from output of simulator
-            sol - from output of simulator
-            period - period of the LCO
-        Outputs:
-            y0dawn, dawn index, tnew, ynew
-        """
-        
-        sol = self.sol
-        t = self.ts
-        try: period = self.period
-        except:
-            self.find_period()
-            period = self.period
+        if sum(np.diff(periods)) < tol:
+            self.T = np.mean(periods)
             
-        if StateVar:
-                stateindex = self.ydict[StateVar]
-        else: stateindex=0
-    
-        pts = 10000 #minimum discretization of single limit cycle
-        #accurate to O(log(pts-1))
-    
-        single_per_ptcount = int(period*len(t)/np.amax(t))
-            
-        #artificial time is merely a set of points
-        tnew = (np.linspace(0,3*pts-1,3*pts)/(3*pts))*t[3*single_per_ptcount]            
-        
-        ynew = np.zeros([3*pts, len(sol[0,:])])
-        
-        for i in range(len(sol[0,:])):
-            #this creates a spline interpolation for each state variable
-            tck = splrep(t[0:3*single_per_ptcount], sol[0:3*single_per_ptcount,i])
-            ynew[:,i] = splev(tnew[:],tck,der=0)
-    
-        maxCryPer_mRNAindex = np.argmax(ynew[pts:2*pts,stateindex])+pts
-    
-    
-        t_dawn = tnew[maxCryPer_mRNAindex] - 7*period/24
-        if t_dawn > period:
-            t_dawn=t_dawn-period    
-            
-        dawn_index = np.argmin(np.abs(tnew-t_dawn))            
-    
-        #this is from a spline interpolation.
-        y0dawn = ynew[dawn_index+pts,:]
-        
-        self.y0dawn = y0dawn
-        self.t = tnew
-        self.y = ynew
-        self.phi = self.t/period*np.pi*2
-
-    def create_splines(self, s=0):
-        """
-        Returns self.spline_dict, which has splines between 0 and 2*pi for 
-        each state of the model. Also includes time as a spline.
-        """
-        spline_dict = {}
-        try: phi = self.phi
-        except: 
-            self.find_y0()
-            phi = self.phi
-            
-        t = self.t
-        
-        for i in xrange(self.neq):
-            spline_dict[self.ylabels[i]] = UnivariateSpline(phi,self.y[:,i],s=s)
-        
-        spline_dict['t'] = UnivariateSpline(phi,t)
-        self.spline_dict = spline_dict
-       
-    #========================================================================
-    #                   Fitting Utilities - useful for parameter estimation
-    #========================================================================         
-    
-    def peak_to_trough_ratio(self,tsol,sol,period, StateVar):
-        """
-        Determines ratio of peak-to-trough concentration of a state variable.
-        """
-
-        stateindex = self.ydict[StateVar]
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        peak   = np.amax(sol[0:period_point_count,stateindex])
-        trough = np.amin(sol[0:period_point_count,stateindex])
-        ratio  = peak/trough
-
-        return ratio
-
-    def peak_to_trough_time(self,tsol,sol,period, StateVar): 
-        """
-        Determines time from peak to next trough
-        """   
-        stateindex = self.ydict[StateVar]
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex])
-        troughindex = np.argmin(sol[peakindex:peakindex+period_point_count,stateindex])
-        
-        pttt = tsol[troughindex]-tsol[peakindex]
-
-        return pttt
-        
-    def peak_to_peak_time(self,tsol,sol,period, StateVar, StateVar2):
-        """
-        Determines time between two different things peaking. I.e., time of state variable 2
-        peaking - time of state variable 1 peaking. (How long after peak of 1 does 2 peak?)
-        
-        """
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        peak1index   = np.argmax(sol[0:period_point_count,stateindex])
-        peak2index = np.argmax(sol[peak1index:peak1index+period_point_count,stateindex2])
-        
-        ptpt = tsol[peak2index] #peak2index already has peak1index subtracted
-
-        return ptpt
-        
-    def fraction_of_max2(self,tsol,sol,period, StateVar, StateVar2):
-        """
-        Use as many state variables as needed. Fraction of StateVar1 of total StateVars at independent maxes.
-        """
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        #peak of each state var
-        peak1 = np.amax(sol[0:period_point_count,stateindex])
-        peak2 = np.amax(sol[0:period_point_count,stateindex2])
-
-        
-        frac = peak1/(peak1+peak2)
-        
-        return frac
-        
-    def fraction_of_max3(self,tsol,sol,period, StateVar, StateVar2, StateVar3):
-        """
-        Use as many state variables as needed. Fraction of StateVar1 of total StateVars at independent maxes.
-        """
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        stateindex3 = self.ydict[StateVar3]
-
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        #Peak of each state var
-        peak1 = np.amax(sol[0:period_point_count,stateindex])
-        peak2 = np.amax(sol[0:period_point_count,stateindex2])
-        peak3 = np.amax(sol[0:period_point_count,stateindex3])
-
-        
-        frac = peak1/(peak1+peak2+peak3)
-        
-        return frac
-    
-    def fraction_of_sum2(self,tsol,sol,period, StateVar, StateVar2):
-        """
-        Use as many state variables as needed. Fraction of StateVar1 of total StateVars at max sum.
-        """
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        #index at which sum of 2 state vars peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex] + sol[0:period_point_count,stateindex2])
-        
-        peak1 = sol[peakindex, stateindex]
-        peak2 = sol[peakindex, stateindex2]
-        
-        frac = peak1/(peak1 + peak2)
-        return frac
-        
-    def fraction_of_sum3(self,tsol,sol,period, StateVar, StateVar2, StateVar3):
-        """
-        Use as many state variables as needed. Fraction of StateVar1 of total StateVars at max sum.
-        """
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        stateindex3 = self.ydict[StateVar3]
-        
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        
-        #index at which sum of three state vars peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex] +\
-                        sol[0:period_point_count,stateindex2] +\
-                        sol[0:period_point_count,stateindex3])
-        
-        peak1 = sol[peakindex, stateindex]
-        peak2 = sol[peakindex, stateindex2]
-        peak3 = sol[peakindex, stateindex3]
-        
-        frac = peak1/(peak1+peak2+peak3)
-        
-        return frac
-    
-    def c_max(self,tsol,sol,period,StateVar):
-        stateindex = self.ydict[StateVar]
-        #uses time relative to per peak to get time of peak
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        perpeakindex = np.argmax(sol[0:period_point_count,0])
-        
-        #index at which sum of state var peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex])
-        conc = np.amax(sol[0:period_point_count,stateindex])
-        return conc
-    
-    ##Times of maximum
-    
-    def t_max(self,tsol,sol,period,StateVar):
-        stateindex = self.ydict[StateVar]
-        #uses time relative to per peak to get time of peak
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        perpeakindex = np.argmax(sol[0:period_point_count,0])
-        
-        #index at which sum of state var peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex])
-        time = tsol[peakindex]-tsol[perpeakindex] + period*7/24
-        return time
-        
-    def t_max2(self,tsol,sol,period,StateVar,StateVar2):
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        perpeakindex = np.argmax(sol[0:period_point_count,0])
-        
-        #index at which sum of 2 state vars peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex] + sol[0:period_point_count,stateindex2])
-        time = tsol[peakindex]-tsol[perpeakindex] + period*7/24
-        return time
-
-    def t_max3(self,tsol,sol,period,StateVar,StateVar2,StateVar3):
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        stateindex3 = self.ydict[StateVar3]
-        
+            #calculating the y0 for each state witha  cubic spline
+            self.y0 = np.zeros(self.neq)
+            for i in range(self.neq):
+                spl = UnivariateSpline(time, states[:,i], k=3, s=0)
+                self.y0[i] = spl(peaks[0])
                 
-        period_point_count = int((period/np.amax(tsol))*len(tsol))+1
-        perpeakindex = np.argmax(sol[0:period_point_count,0])
-        #index at which sum of 3 state vars peaks
-        peakindex   = np.argmax(sol[0:period_point_count,stateindex] + 
-                    sol[0:period_point_count,stateindex2] + 
-                    sol[0:period_point_count,stateindex3])
-        
-        time = tsol[peakindex]-tsol[perpeakindex] + period*7/24
-        return time
+        else:
+            self.T = -1
 
-        
-    def knockout_period(self, period, ParameterKO):
+    def corestationary(self,guess=None):
         """
-        A particularly tricky bit of code. Re-does integration and period finding, with one
-        of the parameters set to 0.
+        find stationary solutions that satisfy ydot = 0 for stability
+        analysis. 
         """
-        
-        koparam = np.copy(self.param)
+        guess=None
+        if guess is None: guess = np.array(self.y0)
+        else: guess = np.array(guess)
+        y = self.model.inputExpr(cs.DAE_X)
+        t = self.model.inputExpr(cs.DAE_T)
+        p = self.model.inputExpr(cs.DAE_P)
+        ode = self.model.outputExpr()
+        fn = cs.SXFunction([y,t,p],ode)
+        kfn = cs.ImplicitFunction('kinsol',fn)
+        abstol = 1E-10
+        kfn.setOption("abstol",abstol)
+        kfn.setOption("constraints",(2,)*self.neq) # constain using kinsol to >0
+        kfn.setOption("linear_solver_type","dense")
+        kfn.setOption("exact_jacobian",True)
+        kfn.setOption("u_scale",(100/guess).tolist())
+        kfn.setOption("disable_internal_warnings",True)
+        kfn.init()
+        kfn.setInput(self.param,2)
+        kfn.setInput(guess)
+        kfn.evaluate()
+        y0out = kfn.output().toArray()
 
-        for i in range(len(ParameterKO[:])):
-            pindex = self.pdict[ParameterKO[i]]
-            koparam[pindex] = 0
-
-        y0in = 1*np.ones(self.EqnCount)
+        if any(np.isnan(y0out)):
+            raise RuntimeError("findstationary: KINSOL failed to find \
+                               acceptable solution")
         
-        test = CircEval(self.model, koparam, y0in)
+        self.ss = y0out.flatten()
+        
+        if np.linalg.norm(self.dydt(self.ss)) >= abstol or any(y0out <= 0):
+            raise RuntimeError("findstationary: KINSOL failed to reach \
+                               acceptable bounds")
+              
+        self.eigs = np.linalg.eigvals(self.dfdy(self.ss))
+
+    def find_stationary(self, guess=None):
+        """
+        Find the stationary points dy/dt = 0, and check if it is a
+        stable attractor (non oscillatory).
+        Parameters
+        ----------
+        guess : (optional) iterable
+            starting value for the iterative solver. If empty, uses
+            current value for initial condition, y0.
+        Returns
+        -------
+        +0 : Fixed point is not a steady-state attractor
+        +1 : Fixed point IS a steady-state attractor
+        -1 : Solution failed to converge
+        """
+        try:
+            self.corestationary(guess)
+            if all(np.real(self.eigs) < 0): return 1
+            else: return 0
+
+        except Exception: return -1
+
+
+if __name__ == "__main__":
     
-        y0LC = test.burnTransient(tf = 1000, numsteps = 1000) 
-        sol = test.intODEs_sim(y0LC,250,numsteps=10000)
-        tsol = test.ts 
-        periodsol = test.findPeriod(tsol, sol,'p')
-        period_new = periodsol[0]
-        #catches slight oscillations
-        if np.var(sol[:,0])<0.001:
-            period_new=-3
-
-        frac = period_new/period
-        return frac
+    from Models.tyson_model import model, param, EqCount
     
-    def FD_period_param_sens(self,period,ParameterS):
-        """
-        Sensitivity of period to a finite change (+0.05) in parameter value for a certain parameter.
-        If nonoscillatory, returns a value of [0, 1] (an error value of 1).
-        """
-
-        output = [0, 0]
-        dp = 0.1
-        sensparam = np.copy(self.param)
-        sensparam[self.pdict[ParameterS]] = sensparam[self.pdict[ParameterS]]+dp
-        
-        new2 = CircEval(self.model, sensparam, self.y0)
+    lap = jha.laptimer()
     
-        y0LC = new2.burnTransient(tf = 1000, numsteps = 1000) 
-        sol = new2.intODEs_sim(y0LC,250,numsteps=10000)
-        tsol = new2.ts 
-        periodsol = new2.findPeriod(tsol, sol,'p')
-        period_new = periodsol[0]
-        
-        if period_new < 0:
-            output[1]=1
-            return output
-        
-        sens = (period_new-period)/dp
-        
-        output[0] = sens
-        return output
-        
-    def PhaseResponse(self,tsol,sol,period,StatePRC,intervals=101, 
-                      numsteps = 1000, pa = 1):
-        """Phase response curve for arbitrary SV
-        Steps:
-            1. Take initial conditions y0 from sol at t0, set phase to 0.
-            2. Increase conc. --> integrate out 10 periods, to past transient, 
-                since LC doesnt change, find
-               the point at which the states most closely match the LC. Find 
-               phase of that point. subtract the two.
-        
-        STILL IMPERFECT AND NOT READY TO GO
-        """
-        dt = tsol[1]-tsol[0]
-        SVnum = self.ydict[StatePRC]
-        pulse = np.amax(sol[:,SVnum])*pa
-        cycle = sol[0:np.round(period/dt)+1,:] 
-        tf = 10*period
-        
-        #discretize time, these points will be where we look at the 
-        #phase change
-        t_prc = np.zeros(intervals)
-        for i in xrange(intervals):
-            t_prc[i] = i * (period) / (intervals-1)
-        
-        response = np.zeros([len(t_prc),2])
-        response[:,0] = t_prc
-        
-        #at each point, find the phase response
-        
-        #first, set up the integrator
-        self.integrator = cs.Integrator('cvodes',self.model)
-
-        #Set up the tolerances etc.
-        self.integrator.setOption("abstol", self.intoptions['intabstol'])
-        self.integrator.setOption("reltol", self.intoptions['intreltol'])
-        self.integrator.setOption("max_num_steps", 
-                                  self.intoptions['intmaxstepcount'])
-        self.integrator.setOption("tf",tf)
-        
-        #Let's integrate
-        self.integrator.init()
-        self.ts = np.linspace(0,tf, numsteps)
-        self.simulator = cs.Simulator(self.integrator, self.ts)
-        self.simulator.init()
-        
-        for i in range(len(t_prc)):
-            t=t_prc[i]
-            
-            #set y0 for closest point
-            y0pulse = np.copy(cycle[np.argmin(np.abs(t-tsol)),:])
-            y0pulse[SVnum] = pulse+y0pulse[SVnum]
-            
-            #integrate
-            self.simulator.setInput((y0pulse[:]),cs.INTEGRATOR_X0)
-            self.simulator.setInput(self.param,cs.INTEGRATOR_P)
-            self.simulator.evaluate()
-            ss= self.simulator.output().toArray()
-            end = ss[len(ss)-1]
-
-            diff_sol = cycle-end
-            diff_t = np.argmin(np.sum(np.abs(diff_sol), axis=1))
-            if np.amin(np.sum(np.abs(diff_sol), axis=1)) > 0.05:
-                print('Difference too high in PRC, point unsuitable: '),
-                print np.min(np.sum(np.abs(diff_sol), axis=1))
-            diff_t = tsol[diff_t]
-            ps_arg = np.argmin(np.abs([diff_t-t, 
-                                         diff_t-t+period,
-                                         diff_t-t-period]))
-            phase_shift = [diff_t-t, diff_t-t+period, diff_t-t-period][ps_arg]
-            #first is true phase difference, second is if it overruns,
-            #third is if it is too far back
-            response[i,1] = phase_shift
-            #find point where this matches
-            #find the time at that point
-            #compare it with t
-            
-        self.prc = response
-        
-#========================================================================
-#               ODE Plotting Utilities
-#========================================================================
-class ODEplots(object):
-    """class for plotting results of deterministic models"""
+    # initialize with 1s
+    tyson = Oscillator(model(), param, np.ones(EqCount))
+    print tyson.y0, 'setup time = %0.3f' %(lap() )
     
-    def __init__(self,tsol,sol,period,model):
-        self.tsol = tsol
-        self.sol  = sol
-        self.period = period
-        
-        self.model = model
-        self.EqnCount   = self.model.input(cs.DAE_X).size()
-        self.ParamCount = self.model.input(cs.DAE_P).size()
-        
-        self.ylabels = [self.model.inputSX(cs.DAE_X)[i].getDescription()
-                        for i in xrange(self.EqnCount)]
-        self.plabels = [self.model.inputSX(cs.DAE_P)[i].getDescription()
-                        for i in xrange(self.ParamCount)]
-        
-        self.pdict = {}
-        self.ydict = {}
-        
-        for par,ind in zip(self.plabels,range(0,self.ParamCount)):
-            self.pdict[par] = ind
-            
-        for par,ind in zip(self.ylabels,range(0,self.EqnCount)):
-            self.ydict[par] = ind
-            
-        self.iv_ydict = {v: k for k, v in self.ydict.items()}
+    # find a spot on LC
+    tyson.y0 = np.ones(EqCount)
+    tyson.burn_trans()
+    print tyson.y0, 'y0 burn time = %0.3f' %(lap() ) 
     
-    def fullPlot(self,StateVar, figurenum = 0):
-        """
-        Plots full range of sol vs. t for a given state variable.
-            t           -   The array of time values.
-            sol         -   The solution matrix for all state variables.
-            period      -   The period as determined by findPeriod.
-            StateVarNum -   The state variable number being plotted.
-            figurenum   -   The figure number.
-        """
-        plt.figure(figurenum)
-        stateindex = self.ydict[StateVar]
-        
-        #Identifies and plots two periods
-        plt.plot(self.tsol[:],self.sol[:, stateindex],label = StateVar)
-
-        plt.title('State Variable Ocsillation')
-        plt.xlabel('Time')
-        plt.ylabel('State Variable')
-        plt.legend()
-
-
+    # or find a max and the approximate period
+    tyson.y0 = np.ones(EqCount)
+    tyson.approx_y0_T()
+    print tyson.y0, tyson.T, 'y0 approx time = %0.3f' %(lap() )
     
-    def twoCycleTimePlot(self, StateVar, t_dawn = 0,figurenum = 1):
-        """
-        Identifies and plots two periods of the State Variable selected.
-        Inputs:
-            t           -   The array of time values.
-            sol         -   The solution matrix for all state variables. 
-                            Assumed to be past transient.
-            period      -   The period as determined by findPeriod.
-            StateVarNum -   The state variable number being plotted.
-            figurenum   -   The figure number.
-            
-        """
-        plt.figure(figurenum)
-        stateindex = self.ydict[StateVar]
-        
-        pointcount = 2*int(self.period*len(self.tsol)/np.amax(self.tsol))
-        
-        #Identifies and plots two periods
-        plt.plot(self.tsol[range(pointcount)],self.sol[range(pointcount), stateindex],label = StateVar)
+    # find the period and y0 using a BVP solution
+    tyson.y0 = np.ones(EqCount)
+    tyson.solve_bvp(method='scipy')
+    print tyson.y0, tyson.T, 'y0 scipy bvp time = %0.3f' %(lap() )
+    
+    # find the period and y0 using a BVP solution
+    tyson.y0 = np.ones(EqCount)
+    tyson.solve_bvp(method='casadi')
+    print tyson.y0, tyson.T, 'y0 casadi bvp time = %0.3f' %(lap() )
 
-        plt.title('State Variable Ocsillation')
-        plt.xlabel('Time')
-        plt.ylabel('State Variable')
-        plt.legend()
-
-
-
-    def dawn_2cycle_plot(self, dawn_index, StateVar, figurenum = 3):
-        """
-        Will plot starting at dawn_index for two periods to get two cycles 
-        starting at dawn day 1.
-        
-        """
-        
-        circadiantime = False
-        nightcolor = False
-        plt.figure(figurenum)
-        self.tsol = self.tsol - self.tsol[dawn_index]
-
-        stateindex = self.ydict[StateVar]
-        tmaxind = len(self.tsol) - (len(self.tsol)/3 - dawn_index)
-        #tmaxind = len(t)- (len(t)/3 - dawn_index)
-        
-
-        if circadiantime == True:
-            self.tsol = self.tsol*24/self.period
-        
-        #Identifies and plots two periods
-        plt.plot(self.tsol[dawn_index:tmaxind],self.sol[dawn_index:tmaxind, 
-                 stateindex],label = StateVar)
-        if nightcolor ==True:
-            plt.axvspan(12, 24, facecolor='#d3d3d3', alpha=0.5)
-            plt.axvspan(36, 48, facecolor='#d3d3d3', alpha=0.5)
-
-        plt.title('State Variable Ocsillation')
-        plt.xlabel('Time, Circadian Hours')
-        plt.ylabel('State Variable')
-        plt.legend()
-
-
-
-
-    def limitCyclePlot(self,StateVar,StateVar2, figurenum=2):
-        """
-        Identifies and plots the limit cycle of the two State Variable 
-        selected.
-        Inputs:
-            t           -   The array of time values.            
-            sol         -   The solution matrix for all state variables. 
-                            Assumed to be untruncated 
-                            (containing the transient).
-            period      -   The period as determined by findPeriod.
-            StateVar1&2 -   The state variable number being plotted.
-            figurenum   -   The figure number.
-            
-        """
-        plt.figure(figurenum)
-        stateindex = self.ydict[StateVar]
-        stateindex2 = self.ydict[StateVar2]
-        pointcount = int(self.period*2*len(self.tsol)/np.amax(self.tsol))
-        plt.plot(self.sol[range(pointcount), stateindex], 
-                          self.sol[range(pointcount), stateindex2])
-        plt.title('Limit Cycle Oscillations')
-        plt.xlabel(StateVar)
-        plt.ylabel(StateVar2)
-
-    def period_param_sens_plot(self,Param):
-        return 0
-
-
-        
-#============================================:============================
-#                   Data tools - for manipulating data
-#======================================================================== 
-
-
-
-def psave(filename):
-    savefile = open(filename)
-    pickler = pickle.Pickler(savefile)
-    pickler.clear_memo()
-    pickler.dump(filename)
-    del pickler
-    del savefile
-
-
-
-
+    # find steady state soln (fixed pt)
+    tyson.find_stationary()
+    print tyson.ss, 'stationary time = %0.3f' %(lap() )
 
 

@@ -152,7 +152,7 @@ class network(object):
             self.mic[use_sph] = mic
         else: self.mic = {use_sph : mic}
 
-    def ipython_MIC(self,use_data='raw',myprofile='john'):
+    def ipython_MIC(self,use_data='raw',myprofile='john',client=None):
         """
         Parallel calculation of MIC for an array of trajectories. It calls 
         the function below it, ipython_mp, which is parallelizable.
@@ -160,11 +160,16 @@ class network(object):
         import ipyparallel as pll        
         
         # checks to make sure Client may be run
-        try: client = pll.Client(profile=myprofile)
-        except IOError, e:
-            print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
-            print e
-            return
+        if client is None:
+            import ipyparallel as pll
+            try: client = pll.Client(profile=myprofile)
+            except IOError, e:
+                print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+                print e
+                return
+        else:
+            #client already set
+            print "client found"
         
         import time
         start_time = time.time()
@@ -1092,7 +1097,7 @@ def ROC(adj, infer, ints = 1000):
         roc[i,:] = [criteria,fpr,tpr,fnr,tnr]
     return roc
 
-def ipython_ROC(adj, infer, ints = 1000, myprofile='john'):
+def ipython_ROC(adj, infer, ints = 1000, myprofile='john',client=None):
     """
     Compares adj, the connectivity matrix, to infer, the inferred mutual info
     matrix, to determine the ROC curve. Default of cutoff range from 0 to 1, 
@@ -1105,13 +1110,16 @@ def ipython_ROC(adj, infer, ints = 1000, myprofile='john'):
     if np.shape(adj) != np.shape(infer):
         print 'ERROR: Shapes of adjacency matrices do not match.'
         return
-
-    import ipyparallel as pll
-    try: client = pll.Client(profile=myprofile)
-    except IOError, e:
-        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
-        print e
-        return
+    if client is None:
+        import ipyparallel as pll
+        try: client = pll.Client(profile=myprofile)
+        except IOError, e:
+            print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+            print e
+            return
+    else:
+        #client already set
+        print "client found"
     
     rocdata=[]
     #set up rocdata total intervals, interval, adj, mic
@@ -1367,7 +1375,26 @@ def ipp_resample_path_cluster(nxgraphs,net_names,its=10000,myprofile='john'):
     print end_time
     return nets_pc
 
-
+def ipp_client_setup(myprofile='john'):
+    """
+    starts up the client such that we don't have to do it every time.
+    this is when I'm calling many parallel processes, i.e. parallel operations
+    looped.
+    """
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    return client
+    
+    
+    
+    
+    
+    
 # for quickly performing the analysis of fetal SCN data
 # generally run after the setup functions I defined elsewhere
 
@@ -1854,7 +1881,7 @@ def net_significance(net_ref):
 
 
 
-def ipp_simulate_adjacency(model,adjacency, save_path, ensembles):
+def ipp_simulate_adjacency_3st(adjacency, save_path, ensembles, myprofile='john'):
     
     import ipyparallel as pll
     try: client = pll.Client(profile=myprofile)
@@ -1866,11 +1893,6 @@ def ipp_simulate_adjacency(model,adjacency, save_path, ensembles):
     import time
     start_time = time.time()
     dview = client[:] # use all nodes alotted
-    #include necessary imports for function
-    dview.execute('import network_inference as ni;'+\
-                    'reload(ni); import random;'+\
-                    'from network_inference import *;'+\
-                    'import '+model+' as model;')
     
     #loop here
     seeds = range(ensembles)
@@ -1879,26 +1901,142 @@ def ipp_simulate_adjacency(model,adjacency, save_path, ensembles):
     for seed in seeds:
         sim_data.append([seed,adjacency,save_path])
     
-    
-    dview.map_sync(par_sim,sim_data)
+    np.save(save_path+'adjacency.npy',adjacency)
+    dview.map_sync(par_sim_3st,sim_data)
 
     end_time = time.time()-start_time
     print end_time
 
-def par_sim(sim_data):
+def par_sim_3st(sim_data):
+    from ExperimentalModels import threest_network_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
     seed = sim_data[0]
     adj = sim_data[1]
     path = sim_data[2]
     
     #set up the model to simulate the desync
-    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),model.y0in,model.param)
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 0.05 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=0.05)
+    new_net.resample(des=1,method='sum')
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['resample'])
 
 
+def ipp_simulate_adjacency_SDS(adjacency, save_path, ensembles, myprofile='john'):
+    
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    
+    #loop here
+    seeds = range(ensembles)
+    
+    sim_data = []
+    for seed in seeds:
+        sim_data.append([seed,adjacency,save_path])
+    
+    np.save(save_path+'adjacency.npy',adjacency)
+    dview.map_sync(par_sim_SDS,sim_data)
 
+    end_time = time.time()-start_time
+    print end_time
 
-
-
-
+def par_sim_SDS(sim_data):
+    from ExperimentalModels import SDS_network_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 0.05 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=0.05)
+    new_net.resample(des=1,method='sum')
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['resample'])
+    
+    
+    
+    
 
 if __name__ == "__main__":
     

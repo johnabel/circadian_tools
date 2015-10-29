@@ -13,11 +13,6 @@ Created on Fri Jan 31 12:01:35 2014
 import casadi as cs
 import numpy as np
 
-# Sensitivities
-abstol = 1e-11
-reltol = 1e-9
-maxnumsteps = 40000
-
 # Constants and Equation Setup
 EqCount = 2
 ParamCount = 9
@@ -30,8 +25,8 @@ def model():
     #==================================================================
     #setup of symbolics
     #==================================================================
-    x = cs.ssym("x")
-    y = cs.ssym("y")
+    x = cs.SX.sym("x")
+    y = cs.SX.sym("y")
     
     sys = cs.vertcat([x,y])
     
@@ -39,21 +34,21 @@ def model():
     #Parameter definitions
     #===================================================================
     
-    k1  = cs.ssym("k1")
-    Kd  = cs.ssym("Kd")
-    P   = cs.ssym("P")
-    kdx = cs.ssym("kdx")
-    ksy = cs.ssym("ksy")
-    kdy = cs.ssym("kdy")
-    k2  = cs.ssym("k2")
-    Km  = cs.ssym("Km")
-    KI  = cs.ssym("KI")
+    k1  = cs.SX.sym("k1")
+    Kd  = cs.SX.sym("Kd")
+    P   = cs.SX.sym("P")
+    kdx = cs.SX.sym("kdx")
+    ksy = cs.SX.sym("ksy")
+    kdy = cs.SX.sym("kdy")
+    k2  = cs.SX.sym("k2")
+    Km  = cs.SX.sym("Km")
+    KI  = cs.SX.sym("KI")
     
     paramset = cs.vertcat([k1,Kd,P,kdx,ksy,kdy,k2,Km,KI])
     
     # Time
-    t = cs.ssym("t")
-
+    t = cs.SX.sym("t")
+    
     
     #===================================================================
     # set up the ode system
