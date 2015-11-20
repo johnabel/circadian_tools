@@ -16,6 +16,7 @@ import pdb
 
 #my modules
 from jha_utilities import fnlist, spline
+import jha_utilities as jha
 
 # Class for performing collocation analysis
 class Collocation:
@@ -35,7 +36,7 @@ class Collocation:
         self.collocation_method = 'radau'
         self.deg = 4 # degree of interpolating polynomial
         self.points_per_interval = 1
-        self.nk = 10
+        self.nk = 10 # Shooting discretization
         self.tf = 24.0 # single period covers everything
         
         # Set up some default placeholders for bounds
@@ -73,6 +74,19 @@ class Collocation:
             #'print_level'               : 10      # For Debugging
         }
         
+        # Boundary Value Problem Options. Here we can change integration
+        # toleraces, method options, etc.
+        self.BvpOpts = {
+            'Y0TOL'           : 1E-3,
+            'bvp_method'      : 'periodic',
+            'findstationary'  : False,
+            'check_stability' : True,
+            'check_roots' : True
+        }
+
+
+        self.minimize_f = None
+        
         # Add the model to this object
         if model:
             self.AttachModel(model)
@@ -87,13 +101,13 @@ class Collocation:
         """
         self.model = model()
         self.model.init()
-        self.EqCount = self.model.input(cs.DAE_X).size()
+        self.neq = self.model.input(cs.DAE_X).size()
         self.ParamCount  = self.model.input(cs.DAE_P).size()
         
         # Some of this syntax is borrowed from Peter St. John.
-        self.ylabels = [self.model.inputSX(cs.DAE_X)[i].getDescription()
-                        for i in xrange(self.EqCount)]
-        self.plabels = [self.model.inputSX(cs.DAE_P)[i].getDescription()
+        self.ylabels = [self.model.inputExpr(cs.DAE_X)[i].getName()
+                        for i in xrange(self.neq)]
+        self.plabels = [self.model.inputExpr(cs.DAE_P)[i].getName()
                         for i in xrange(self.ParamCount)]
         
         self.pdict = {}
@@ -102,7 +116,7 @@ class Collocation:
         for par,ind in zip(self.plabels,range(0,self.ParamCount)):
             self.pdict[par] = ind
             
-        for par,ind in zip(self.ylabels,range(0,self.EqCount)):
+        for par,ind in zip(self.ylabels,range(0,self.neq)):
             self.ydict[par] = ind
 
         # Model now attached to object along with its contents.
@@ -135,7 +149,7 @@ class Collocation:
         """
         
         height, width = matrix.shape
-        assert width == self.EqCount, "Measurement Matrix shape mis-match"
+        assert width == self.neq, "Measurement Matrix shape mis-match"
         self.NM = height
         self.Amatrix = matrix
 
@@ -152,107 +166,107 @@ class Collocation:
 
         self.YMAX = matrix.dot(np.array(self.XMAX))
         self.YMIN = matrix.dot(np.array(self.XMIN))
-
-    def DataMatrix(self,data,time,variances=None):
-        """
-        Calls AttachExperiment for each data trajectory that we have. Must
-        be assembled as a matrix with column # being state.
-        """
-        # confirm time series matches up with data
-        assert(len(data[:,0])==len(time))
-        
-        #confirms data for each SV
-        assert(len(data[0,:]==self.EqCount))
-        
-        #variances for data, if not giver
-        if variances is None:
-            variances = 0.05*data
-
-        for i in range(len(data[0,:])):
-            #each column (each state)
-            self.AttachExperiment(i,time,data[:,i],variances[:,i])
-
-        self.measurement_matrix(np.eye(self.EqCount)) 
-        # sets up relationships for ys. for example, if each trajectory is a 
-        # single state in order, use the identity matrix. If something is a 
-        # sum of two states, you'll need two in the rows. For the data matrix
-        # case, should always be eye.
-        print "Data matrix attached."
     
  
    
-    def setup(self):
+    def setup_coefficients(self):
         """
-        Sets up the collocation problem as in the example in casadi. I will
-        explain this as it happens.
-        
-        Casadi explanation:
-            
+        Creates and returns coefficients for the interpolating
+        polynomials. Also returns and stores the grid for all XD points
+        in self.tgrid 
+        Requirements: None (set up additional options through direct
+        calls to self.NLPdata and self.IpoptOpts, PARMAX, PARMIN, XMAX,
+        MIN, etc.
         """
-      
-        tau_root = collocation_point_sets(self.deg, 
-                                           method = self.collocation_method)
-        # convenience and to match casadi implementation
-        deg = self.deg
-        nk = self.nk
-        tf = self.tf
-        
-        # size of finite elements 
-        h = tf/nk
-        
+
+        # Legendre collocation points
+        legendre_points1 = [0, 0.500000]
+        legendre_points2 = [0, 0.211325, 0.788675]
+        legendre_points3 = [0, 0.112702, 0.500000, 0.887298]
+        legendre_points4 = [0, 0.069432, 0.330009, 0.669991, 0.930568]
+        legendre_points5 = [0, 0.046910, 0.230765, 0.500000, 0.769235,
+                            0.953090]
+        legendre_points  = [0, legendre_points1, legendre_points2,
+                            legendre_points3, legendre_points4,
+                            legendre_points5]
+
+        # Radau collocation points
+        radau_points1 = [0, 1.000000]
+        radau_points2 = [0, 0.333333, 1.000000]
+        radau_points3 = [0, 0.155051, 0.644949, 1.000000]
+        radau_points4 = [0, 0.088588, 0.409467, 0.787659, 1.000000]
+        radau_points5 = [0, 0.057104, 0.276843, 0.583590, 0.860240,
+                         1.000000]
+        radau_points  = [0, radau_points1, radau_points2, radau_points3,
+                         radau_points4, radau_points5]
+
+        # Type of collocation points
+        # LEGENDRE = 0
+        RADAU = 1
+        collocation_points = [legendre_points, radau_points]
+        self.NLPdata['collocation_points'] = collocation_points
+
+        # Radau collocation points
+        self.NLPdata['cp'] = cp = RADAU
+        # Size of the finite elements
+        self.h = self.tf/self.nk/self.points_per_interval
+
         # Coefficients of the collocation equation
-        C = np.zeros((deg+1,deg+1))
-        
-        # coefficients of the continuity equation
-        D = np.zeros(deg+1)
-        
+        C = np.zeros((self.deg+1,self.deg+1))
+        # Coefficients of the continuity equation
+        D = np.zeros(self.deg+1)
+        # Coefficients for integration
+        E = np.zeros(self.deg+1)
+
         # Collocation point
-        tau = cs.ssym("tau")
-        
+        tau = cs.SX.sym("tau")
+          
         # All collocation time points
-        T = np.zeros((nk, deg+1))
-        for k in range(nk):
-            for j in range(deg+1):
-                T[k,j] = h*(k+tau_root[j])
-                
-        # For all collocation points
-        for j in range(deg+1):
-            # Construct Lagrange polynomials to get the polynomial 
-            # basis at the collocation point
+        tau_root = collocation_points[cp][self.deg]
+        T = np.zeros((self.nk,self.deg+1))
+        for i in range(self.nk):
+          for j in range(self.deg+1):
+                T[i][j] = self.h*(i + tau_root[j])
+
+        # For all collocation points: eq 10.4 or 10.17 in Biegler's book
+        # Construct Lagrange polynomials to get the polynomial basis at
+        # the collocation point
+        for j in range(self.deg+1):
             L = 1
-            for r in range(deg+1):
-                if r != j:
-                    L *= (tau-tau_root[r])/(tau_root[j]-tau_root[r])
+            for j2 in range(self.deg+1):
+                if j2 != j:
+                    L *= (tau-tau_root[j2])/(tau_root[j]-tau_root[j2])
             lfcn = cs.SXFunction([tau],[L])
             lfcn.init()
-  
-            # Evaluate the polynomial at the final time to get the 
+            # Evaluate the polynomial at the final time to get the
             # coefficients of the continuity equation
             lfcn.setInput(1.0)
             lfcn.evaluate()
             D[j] = lfcn.output()
 
-            # Evaluate the time derivative of the polynomial at all collocation points to get the coefficients of the continuity equation
-            for r in range(deg+1):
-                lfcn.setInput(tau_root[r])
-                lfcn.setFwdSeed(1.0)
+            # Evaluate the time derivative of the polynomial at all
+            # collocation points to get the coefficients of the
+            # continuity equation
+            for j2 in range(self.deg+1):
+                lfcn.setInput(tau_root[j2])
+                #lfcn.setFwdSeed(1.0) #note: what does this matter??
                 lfcn.evaluate(1,0)
-                C[j,r] = lfcn.fwdSens()
-            
-            # I believe tg is a time grid
-            tg = np.array(tau_root)*h
-            for k in range(nk):
+                C[j][j2] = lfcn.fwdSens()
+
+            # lint = cs.CVodesIntegrator(lfcn)
+
+            tg = np.array(tau_root)*self.h
+            for k in range(self.nk*self.points_per_interval):
                 if k == 0:
                     tgrid = tg
                 else:
                     tgrid = np.append(tgrid,tgrid[-1]+tg)
-        
-        # save to self for when we execute the actual collocation
+
+
+
         self.tgrid = tgrid
         self.C = C
         self.D = D
-        self.h = h
-        
         # weights for the integration of function along lagrange
         # polynomial
         self.E = [0., 0.118463, 0.239314, 0.284445, 0.239314, 0.118463]
@@ -260,20 +274,20 @@ class Collocation:
         # Set up PARMAX and PARMIN variables. Check if they are a
         # vector, if not resize to number of parameters.
         try:
-            assert len(self.PARMAX) == len(self.PARMIN) == self.ParamCount, \
+            assert len(self.PARMAX) == len(self.PARMIN) == self.np, \
             "Parameter bounds not correct length"
         except TypeError:
-            self.PARMAX = [self.PARMAX] * self.ParamCount
-            self.PARMIN = [self.PARMIN] * self.ParamCount
+            self.PARMAX = [self.PARMAX] * self.np
+            self.PARMIN = [self.PARMIN] * self.np
             
         # Set up XMAX and XMIN variables. Check if they are a
         # vector, if not resize to number of state variables
         try:
-            assert len(self.XMAX) == len(self.XMIN) == self.EqCount, \
+            assert len(self.XMAX) == len(self.XMIN) == self.neq, \
             "State variable bounds not correct length"
         except TypeError:
-            self.XMAX = [self.XMAX] * self.EqCount
-            self.XMIN = [self.XMIN] * self.EqCount
+            self.XMAX = [self.XMAX] * self.neq
+            self.XMIN = [self.XMIN] * self.neq
     
  
    
@@ -297,7 +311,7 @@ class Collocation:
         # Interpolate from measurement data
         if x_init is None: x_init = self.trajectory_estimation()
         else:
-            assert x_init.shape == (len(self.tgrid), self.EqCount), \
+            assert x_init.shape == (len(self.tgrid), self.neq), \
                 "Shape Mismatch"
             assert (np.all(x_init < self.XMAX) &
                     np.all(x_init > self.XMIN)), "Bounds Error"
@@ -356,7 +370,7 @@ class Collocation:
             # start with [1]*NEQ, otherwise use the result from the
             # previous finite element.
             
-            if xopt == []: iguess = np.ones(self.EqCount)
+            if xopt == []: iguess = np.ones(self.neq)
             else: iguess = xopt[-1]
 
             y = self.sy(t)
@@ -472,7 +486,7 @@ class Collocation:
         # For each state, add the (variable or constant) MX
         # representation of the measured x and f value to the input
         # variable list.
-        for state in xrange(self.EqCount):
+        for state in xrange(self.neq):
             xin += [cs.MX(self.x_init[:,state])]
             fin += [cs.MX(f_init[:,state])]
 
@@ -528,18 +542,18 @@ class Collocation:
         """
         # Find total number of variables for symbolic allocation
         self.monodromy = bool(self.NLPdata['stability'])
-        self.NSENS = len(sensids) + self.EqCount*self.monodromy
-        nsvar = self.NSENS * self.EqCount
-        self.NVAR = (1 + self.NSENS)*self.EqCount
+        self.NSENS = len(sensids) + self.neq*self.monodromy
+        nsvar = self.NSENS * self.neq
+        self.NVAR = (1 + self.NSENS)*self.neq
 
         # Allocate symbolic vectors for the model
-        t     = self.model.inputSX(cs.DAE_T)    # time
-        u     = cs.ssym("u", 0, 1)              # control (empty)
-        xd_in = self.model.inputSX(cs.DAE_X)    # differential state
-        s     = cs.ssym("s", nsvar, 1)          # sensitivities
-        xa    = cs.ssym("xa", 0, 1)             # algebraic state (empty)
-        xddot = cs.ssym("xd", self.EqCount + nsvar) # differential state dt
-        p     = self.model.inputSX(2)           # parameters
+        t     = self.model.inputExpr(cs.DAE_T)    # time
+        u     = cs.SX.sym("u", 0, 1)              # control (empty)
+        xd_in = self.model.inputExpr(cs.DAE_X)    # differential state
+        s     = cs.SX.sym("s", nsvar, 1)          # sensitivities
+        xa    = cs.SX.sym("xa", 0, 1)             # algebraic state (empty)
+        xddot = cs.SX.sym("xd", self.neq + nsvar) # differential state dt
+        p     = self.model.inputExpr(2)           # parameters
 
         # Symbolic function (from input model)
         ode_rhs = self.model.outputSX()
@@ -551,22 +565,22 @@ class Collocation:
 
         sens_rhs = []
         for index, state in enumerate(sensids):
-            s_i = s[index*self.EqCount:(index + 1)*self.EqCount]
+            s_i = s[index*self.neq:(index + 1)*self.neq]
             rhs_i = jac_x.mul(s_i) + jac_p[:, state]
             sens_rhs += [rhs_i]
 
-        offset = len(sensids)*self.EqCount
+        offset = len(sensids)*self.neq
         if self.monodromy:
-            for i in xrange(self.EqCount):
-                s_i = s[offset + i*self.EqCount:offset + (i+1)*self.EqCount]
+            for i in xrange(self.neq):
+                s_i = s[offset + i*self.neq:offset + (i+1)*self.neq]
                 rhs_i = jac_x.mul(s_i)
                 sens_rhs += [rhs_i]
             
         sens_rhs = cs.vertcat(sens_rhs).reshape((nsvar,1))
             
 
-        ode = xddot[:self.EqCount] - ode_rhs
-        sens = xddot[self.EqCount:] - sens_rhs
+        ode = xddot[:self.neq] - ode_rhs
+        sens = xddot[self.neq:] - sens_rhs
         xd = cs.vertcat([xd_in, s])
         tot = cs.vertcat([ode, sens])
         
@@ -586,24 +600,24 @@ class Collocation:
         """
 
         NLPd = self.NLPdata
-        nsvar = self.EqCount*self.NSENS
+        nsvar = self.neq*self.NSENS
         
-        nsy = self.EqCount**2 if self.monodromy else 0
+        nsy = self.neq**2 if self.monodromy else 0
         nsp = nsvar - nsy
             
 
         p_init = self.p_init
         x_init = self.x_init
-        xD_init = np.zeros((len(self.tgrid), self.EqCount + nsvar))
-        xD_init[:,:self.EqCount] = x_init
+        xD_init = np.zeros((len(self.tgrid), self.neq + nsvar))
+        xD_init[:,:self.neq] = x_init
 
         # Set dy_i/dy_0,j = 1 if i=j
-        ics = np.eye(self.EqCount).flatten()
+        ics = np.eye(self.neq).flatten()
         ics = ics[np.newaxis,:].repeat(len(self.tgrid),axis=0)
 
         if self.monodromy:
             xD_init[:,-nsy:] = ics
-            iclist = np.eye(self.EqCount).flatten().tolist()
+            iclist = np.eye(self.neq).flatten().tolist()
         else:
             iclist = []
 
@@ -699,32 +713,32 @@ class Collocation:
 
         pdb.set_trace()
         
-        offset += self.NP # indexing variable
+        offset += self.np # indexing variable
 
         # Get collocated states and parametrized control
-        XD = np.resize(np.array([], dtype=cs.MX), (self.NK, self.NICP,
-                                                   self.DEG+1)) 
+        XD = np.resize(np.array([], dtype=cs.MX), (self.nk, self.points_per_interval,
+                                                   self.deg+1)) 
         # NB: same name as above
-        XA = np.resize(np.array([],dtype=cs.MX),(self.NK,self.NICP,self.DEG)) 
+        XA = np.resize(np.array([],dtype=cs.MX),(self.nk,self.points_per_interval,self.deg)) 
         # NB: same name as above
-        U = np.resize(np.array([],dtype=cs.MX),self.NK)
+        U = np.resize(np.array([],dtype=cs.MX),self.nk)
 
         # Prepare the starting data matrix vars_init, vars_ub, and
         # vars_lb, by looping over finite elements, states, etc. Also
         # groups the variables in the large unknown vector V into XD and
         # XA(unused) for later indexing
-        for k in range(self.NK):  
+        for k in range(self.nk):  
             # Collocated states
-            for i in range(self.NICP):
+            for i in range(self.points_per_interval):
                 #
-                for j in range(self.DEG+1):
+                for j in range(self.deg+1):
                               
                     # Get the expression for the state vector
                     XD[k][i][j] = V[offset:offset+ndiff]
                     if j !=0:
                         XA[k][i][j-1] = V[offset+ndiff:offset+ndiff+nalg]
                     # Add the initial condition
-                    index = (self.DEG+1)*(self.NICP*k+i) + j
+                    index = (self.deg+1)*(self.points_per_interval*k+i) + j
                     if k==0 and j==0 and i==0:
                         vars_init[offset:offset+ndiff] = \
                             self.NLPdata['xD_init'][index,:]
@@ -776,14 +790,14 @@ class Collocation:
         ubg = []
 
         # For all finite elements
-        for k in range(self.NK):
-            for i in range(self.NICP):
+        for k in range(self.nk):
+            for i in range(self.points_per_interval):
                 # For all collocation points
-                for j in range(1,self.DEG+1):   		
+                for j in range(1,self.deg+1):   		
                     # Get an expression for the state derivative
                     # at the collocation point
                     xp_jk = 0
-                    for j2 in range (self.DEG+1):
+                    for j2 in range (self.deg+1):
                         # get the time derivative of the differential
                         # states (eq 10.19b)
                         xp_jk += self.C[j2][j]*XD[k][i][j2]
@@ -808,22 +822,22 @@ class Collocation:
                 # Get an expression for the state at the end of the finite
                 # element
                 xf_k = 0
-                for j in range(self.DEG+1):
+                for j in range(self.deg+1):
                     xf_k += self.D[j]*XD[k][i][j]
                     
-                # if i==self.NICP-1:
+                # if i==self.points_per_interval-1:
 
                 # Add continuity equation to NLP
-                if k+1 != self.NK: # End = Beginning of next
+                if k+1 != self.nk: # End = Beginning of next
                     g += [XD[k+1][0][0] - xf_k]
                     lbg.append(-self.NLPdata['CONtol']*np.ones(ndiff))
                     ubg.append(self.NLPdata['CONtol']*np.ones(ndiff))
                 
                 else: # At the last segment
                     # Periodicity constraints (only for NEQ)
-                    g += [XD[0][0][0][:self.NEQ] - xf_k[:self.NEQ]]
-                    lbg.append(-self.NLPdata['CONtol']*np.ones(self.NEQ))
-                    ubg.append(self.NLPdata['CONtol']*np.ones(self.NEQ))
+                    g += [XD[0][0][0][:self.neq] - xf_k[:self.neq]]
+                    lbg.append(-self.NLPdata['CONtol']*np.ones(self.neq))
+                    ubg.append(self.NLPdata['CONtol']*np.ones(self.neq))
 
 
                 # else:
@@ -836,19 +850,19 @@ class Collocation:
         # Constraint to protect against fixed point solutions
         if self.NLPdata['FPgaurd'] is True:
             fout = self.model.call(cs.daeIn(t=self.tgrid[0],
-                                            x=XD[0,0,0][:self.NEQ],
-                                               p=V[:self.NP]))[0]
+                                            x=XD[0,0,0][:self.neq],
+                                               p=V[:self.np]))[0]
             g += [cs.MX(cs.sumAll(fout**2))]
             lbg.append(np.array(self.NLPdata['FPTOL']))
             ubg.append(np.array(cs.inf))
 
         elif self.NLPdata['FPgaurd'] is 'all':
             fout = self.model.call(cs.daeIn(t=self.tgrid[0],
-                                            x=XD[0,0,0][:self.NEQ],
-                                               p=V[:self.NP]))[0]
+                                            x=XD[0,0,0][:self.neq],
+                                               p=V[:self.np]))[0]
             g += [cs.MX(fout**2)]
-            lbg += [self.NLPdata['FPTOL']]*self.NEQ
-            ubg += [cs.inf]*self.NEQ
+            lbg += [self.NLPdata['FPTOL']]*self.neq
+            ubg += [cs.inf]*self.neq
 
 
 
@@ -858,12 +872,12 @@ class Collocation:
 
         # Get Linear Interpolant for YDATA from TDATA
         objlist = []
-        # xarr = np.array([V[self.NP:][i] for i in \
-        #         xrange(self.NEQ*self.NK*(self.DEG+1))])
-        # xarr = xarr.reshape([self.NK,self.DEG+1,self.NEQ])
+        # xarr = np.array([V[self.np:][i] for i in \
+        #         xrange(self.neq*self.nk*(self.deg+1))])
+        # xarr = xarr.reshape([self.nk,self.deg+1,self.neq])
         
         # List of the times when each finite element starts
-        felist = self.tgrid.reshape((self.NK,self.DEG+1))[:,0]
+        felist = self.tgrid.reshape((self.nk,self.deg+1))[:,0]
         felist = np.hstack([felist, self.tgrid[-1]])
 
         def z(tau, zs):
@@ -878,16 +892,16 @@ class Collocation:
                 Intermediate values for polynomial interpolation
                 """
                 tau = self.NLPdata['collocation_points']\
-                        [self.NLPdata['cp']][self.DEG]
+                        [self.NLPdata['cp']][self.deg]
                 return np.prod(np.array([ 
                         (t - tau[k])/(tau[j] - tau[k]) 
-                        for k in xrange(0,self.DEG+1) if k is not j]))
+                        for k in xrange(0,self.deg+1) if k is not j]))
 
             
             interp_vector = []
-            for i in xrange(self.NEQ): # only state variables
+            for i in xrange(self.neq): # only state variables
                 interp_vector += [np.sum(np.array([l(j, tau)*zs[j][i]
-                                  for j in xrange(0, self.DEG+1)]))]
+                                  for j in xrange(0, self.deg+1)]))]
             return interp_vector
 
         # Set up Objective Function by minimizing distance from
@@ -908,7 +922,7 @@ class Collocation:
 
                 # Get the starting time and tau (0->1) for the tdata
                 taustart = felist[feind]
-                tau = (self.tdata[i][j] - taustart)*(self.NK+1)/self.TF
+                tau = (self.tdata[i][j] - taustart)*(self.nk+1)/self.tf
 
                 x_interp = z(tau, XD[feind][0])
                 # Broken in newest numpy version, likely need to redo
@@ -938,14 +952,14 @@ class Collocation:
             # Function integral
             f_integral = 0
             # For each finite element
-            for i in xrange(self.NK):
+            for i in xrange(self.nk):
                 # For each collocation point
                 fvals = []
-                for j in xrange(self.DEG+1):
+                for j in xrange(self.deg+1):
                     fvals += [self.minimize_f(XD[i][0][j], P)]
                 # integrate with weights
                 f_integral += sum([fvals[k] * self.E[k] for k in
-                                   xrange(self.DEG+1)])
+                                   xrange(self.deg+1)])
 
             objlist += [self.NLPdata['f_minimize_weight']*f_integral]
 
@@ -953,9 +967,9 @@ class Collocation:
 
         # Stability Objective (Floquet Multipliers)
         if self.monodromy:
-            s_final = XD[-1,-1,-1][-self.NEQ**2:]
-            s_final = s_final.reshape((self.NEQ,self.NEQ))
-            trace = sum([s_final[i,i] for i in xrange(self.NEQ)])
+            s_final = XD[-1,-1,-1][-self.neq**2:]
+            s_final = s_final.reshape((self.neq,self.neq))
+            trace = sum([s_final[i,i] for i in xrange(self.neq)])
             objlist += [self.NLPdata['stability']*(trace - 1)**2]
 
 
@@ -1030,37 +1044,50 @@ def interpolating_polynomial( ):
 if __name__ == "__main__":
 
     import circadiantoolbox as ctb
-    from Models.tyson2statemodel import model, param, y0in, period
+    from Models.tyson_model import model, param, y0in, period, EqCount
+
+    
+    lap = jha.laptimer()
+    
+    #get model run
+    tyson = ctb.Oscillator(model(), param, np.ones(EqCount))
+    tyson.calc_y0()
+    tyson.limit_cycle()
+    
     
     # say we are using collocation on the tyson model
-    test = Collocation(model=model)
-
-    # Simulate Tyson model
-    ODEsol = ctb.CircEval(model(), param, y0in)
-    traj_sim = ODEsol.intODEs_sim(y0in,1000)
-    time_sim = ODEsol.ts
-    ODEsol.find_period(time_sim, traj_sim)
-    ODEsol.find_y0PLC(time_sim, traj_sim)
-     
+    coll = Collocation(model=model)
+    
+    
     #attach some data from the Tyson model
-    time_steps = [0,1000,1300,4000,7000,8134,9999]
-    datat = np.zeros(len(time_steps))
-    datay = np.zeros([len(time_steps),2])
-    for i in range(len(time_steps)):
-        ts = time_steps[i]
-        datat[i] = ODEsol.t[ts]
-        datay[i,:] = ODEsol.y[ts]
-    # our randomly selected points
-    test.DataMatrix(datay,datat)
+    time_steps = [0,10,13,40,70,130,165]
+    datat = tyson.ts[time_steps]
+    datay = tyson.sol[time_steps]
+    errors = 0.3*np.random.rand(*datay.shape)
+    
+    # setup collocation problem
+    coll.tf = tyson.T
+    coll.nk = len(time_steps)
+    coll.NLPdata['ObjMethod'] = 'lsq'
+    coll.NLPdata['print_level'] = 5
+    coll.NLPdata['f_minimize_weight'] = 10
+    coll.IpoptOpts['max_iter'] = 2000
+    coll.IpoptOpts['max_cpu_time'] = 60*20
+    # coll.IpoptOpts['linear_solver'] = 'mumps'
+    coll.IpoptOpts['tol'] = 1E-8
+    coll.NLPdata['FPgaurd'] = False
+    
+    coll.PARMAX = 1E+1
+    coll.PARMIN = 1E-3
+    coll.XMAX = 1E+1
+    coll.XMIN = 1E-4
 
 
     # set up the problem like the casadi example
-    test.setup() 
-    test.tf = period # since this is not 24 periodic
+    lfcn = coll.setup_coefficients() 
     
     
-    test.solve()
-
+    #test.solve()
 
 
 

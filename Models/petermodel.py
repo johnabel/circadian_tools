@@ -29,45 +29,45 @@ def model():
     #==================================================================
     #setup of symbolics
     #==================================================================
-    p   = cs.ssym("p")
-    c1  = cs.ssym("c1")
-    c2  = cs.ssym("c2")
-    P   = cs.ssym("P")
-    C1  = cs.ssym("C1")
-    C2  = cs.ssym("C2")
-    C1P = cs.ssym("C1P")
-    C2P = cs.ssym("C2P")
+    p   = cs.SX.sym("p")
+    c1  = cs.SX.sym("c1")
+    c2  = cs.SX.sym("c2")
+    P   = cs.SX.sym("P")
+    C1  = cs.SX.sym("C1")
+    C2  = cs.SX.sym("C2")
+    C1P = cs.SX.sym("C1P")
+    C2P = cs.SX.sym("C2P")
     
     y = cs.vertcat([p, c1, c2, P, C1, C2, C1P, C2P])
     
     # Time Variable
-    t = cs.ssym("t")
+    t = cs.SX.sym("t")
     
     
     #===================================================================
     #Parameter definitions
     #===================================================================
-    vtp    = cs.ssym("vtp")
-    vtc1   = cs.ssym("vtc1")
-    vtc2   = cs.ssym("vtc2")
-    knp    = cs.ssym("knp")
-    knc1   = cs.ssym("knc1")
-    vdp    = cs.ssym("vdp")
-    vdc1   = cs.ssym("vdc1")
-    vdc2   = cs.ssym("vdc2")
-    kdp    = cs.ssym("kdp")
-    kdc1   = cs.ssym("kdc1")
-    vdP    = cs.ssym("vdP")
-    vdC1   = cs.ssym("vdC1")
-    vdC2   = cs.ssym("vdC2")
-    vdCn   = cs.ssym("vdCn")
-    MC2n   = cs.ssym("MC2n")
-    kdP    = cs.ssym("kdP")
-    kdC1   = cs.ssym("kdC1")
-    kdCn   = cs.ssym("kdCn")
-    vaC1P  = cs.ssym("vaC1P")
-    vdC1P  = cs.ssym('vdC1P')
-    ktxnp  = cs.ssym('ktxnp')
+    vtp    = cs.SX.sym("vtp")
+    vtc1   = cs.SX.sym("vtc1")
+    vtc2   = cs.SX.sym("vtc2")
+    knp    = cs.SX.sym("knp")
+    knc1   = cs.SX.sym("knc1")
+    vdp    = cs.SX.sym("vdp")
+    vdc1   = cs.SX.sym("vdc1")
+    vdc2   = cs.SX.sym("vdc2")
+    kdp    = cs.SX.sym("kdp")
+    kdc1   = cs.SX.sym("kdc1")
+    vdP    = cs.SX.sym("vdP")
+    vdC1   = cs.SX.sym("vdC1")
+    vdC2   = cs.SX.sym("vdC2")
+    vdCn   = cs.SX.sym("vdCn")
+    MC2n   = cs.SX.sym("MC2n")
+    kdP    = cs.SX.sym("kdP")
+    kdC1   = cs.SX.sym("kdC1")
+    kdCn   = cs.SX.sym("kdCn")
+    vaC1P  = cs.SX.sym("vaC1P")
+    vdC1P  = cs.SX.sym('vdC1P')
+    ktxnp  = cs.SX.sym('ktxnp')
 
 
     paramset = cs.vertcat([vtp  , vtc1 , vtc2  , knp   , knc1   , vdp  ,

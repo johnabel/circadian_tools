@@ -12,6 +12,7 @@ Created on Fri Jan 31 12:01:35 2014
 """
 import casadi as cs
 import numpy as np
+import gillespy
 
 # Constants and Equation Setup
 EqCount = 2
@@ -65,11 +66,89 @@ def model():
     fn.setOption("name","2state")
     
     return fn
-    
-    
-    
-    
-    
+
+
+class tyson_ssa(gillespy.Model):
+    """
+    Here, as a test case, we run a simple two-state oscillator (Novak & Tyson 
+    2008) as an example of a stochastic reaction system.
+    """
+    def __init__(self, 
+                 param=[0.05, 1.0, 4.0, 0.05, 1.0, 0.05, 1.0, 0.1, 2.0], 
+                 volume = 200,
+                 timespan = np.linspace(0,500,501)):
+        """
+        """
+        gillespy.Model.__init__(self, name="tyson-2-state", volume=volume)
+        self.timespan(timespan)
+        # =============================================
+        # Define model species, initial values, parameters, and volume
+        # =============================================    
+        
+        # Parameter values  for this biochemical system are given in 
+        # concentration units. However, stochastic systems must use population
+        # values. For example, a concentration unit of 0.5mol/(L*s)
+        # is multiplied by a volume unit, to get a population/s rate
+        # constant. Thus, for our non-mass action reactions, we include the 
+        # parameter "vol" in order to convert population units to concentration
+        # units. Volume here = 300.
+
+        k1 = gillespy.Parameter(name='k1', expression = param[0])
+        Kd = gillespy.Parameter(name='Kd', expression = param[1])
+        P = gillespy.Parameter(name='P', expression = param[2])
+        kdx = gillespy.Parameter(name='kdx', expression = param[3])
+        ksy = gillespy.Parameter(name='ksy', expression = param[4])
+        kdy = gillespy.Parameter(name='kdy', expression = param[5])
+        k2 = gillespy.Parameter(name='k2', expression = param[6])
+        Km = gillespy.Parameter(name='Km', expression = param[7])
+        KI = gillespy.Parameter(name='KI', expression = param[8])
+        volm = gillespy.Parameter(name='volume', expression = volume)
+        
+        
+        
+        self.add_parameter([k1, Kd, P, kdx, ksy, kdy, k2, Km, KI, volm])
+        
+        # Species
+        # Initial values of each species (concentration converted to pop.)
+        X = gillespy.Species(name='X', initial_value=int(0.65609071*volume))
+        Y = gillespy.Species(name='Y', initial_value=int(0.85088331*volume))
+        self.add_species([X, Y])
+        
+        # =============================================  
+        # Define the reactions within the model
+        # =============================================  
+        
+        # creation of X:
+        rxn1 = gillespy.Reaction(name = 'X production',
+                        reactants = {},
+                        products = {X:1},
+                        propensity_function = 'volume*(k1*pow(Kd,P))/(pow(Kd,P)+pow(Y,P)/pow(volume,P))')
+        
+        # degradadation of X:
+        rxn2 = gillespy.Reaction(name = 'X degradation',
+                    reactants = {X:1},
+                    products = {},
+                    rate = kdx)
+        
+        # creation of Y:
+        rxn3 = gillespy.Reaction(name = 'Y production',
+                    reactants = {X:1},
+                    products = {X:1, Y:1},
+                    rate = ksy)
+        
+        # degradation of Y:
+        rxn4 = gillespy.Reaction(name = 'Y degradation',
+                    reactants = {Y:1},
+                    products = {},
+                    rate = kdy)
+            
+        # nonlinear Y term:
+        rxn5 = gillespy.Reaction(name = 'Y nonlin',
+                    reactants = {Y:1},
+                    products = {},
+                    propensity_function = 'volume*(Y/volume)/(Km + (Y/volume)+KI*(Y*Y)/(volume*volume))')
+        
+        self.add_reaction([rxn1,rxn2,rxn3,rxn4,rxn5])
     
     
     

@@ -42,7 +42,7 @@ class Oscillator(object):
         self.model = model
         self.modifiedModel()
         self.neq = self.model.input(cs.DAE_X).size()
-        self.npa = self.model.input(cs.DAE_P).size()
+        self.np = self.model.input(cs.DAE_P).size()
         
         self.model.init()
         self.param = param
@@ -53,20 +53,16 @@ class Oscillator(object):
         self.ylabels = [self.model.inputExpr(cs.DAE_X)[i].getName()
                         for i in xrange(self.neq)]
         self.plabels = [self.model.inputExpr(cs.DAE_P)[i].getName()
-                        for i in xrange(self.npa)]
+                        for i in xrange(self.np)]
         
         self.pdict = {}
         self.ydict = {}
         
-        for par,ind in zip(self.plabels,range(0,self.npa)):
+        for par,ind in zip(self.plabels,range(0,self.np)):
             self.pdict[par] = ind
             
         for par,ind in zip(self.ylabels,range(0,self.neq)):
             self.ydict[par] = ind
-        
-        self.param_dict = {}
-        for i in range(self.npa):
-            self.param_dict[self.plabels[i]] = self.param[i]
         
         self.inverse_ydict = {v: k for k, v in self.ydict.items()}
         self.inverse_pdict = {v: k for k, v in self.pdict.items()}
@@ -98,8 +94,8 @@ class Oscillator(object):
         else: self.y0 = np.asarray_chkfinite(y0)     
     
     # shortcuts
-    def _phi_to_t(self, phi): return phi*self.y0[-1]/(2*np.pi)
-    def _t_to_phi(self, t): return (2*np.pi)*t/self.y0[-1]
+    def _phi_to_t(self, phi): return phi*self.T/(2*np.pi)
+    def _t_to_phi(self, t): return (2*np.pi)*t/self.T
     
     
     def modifiedModel(self):
@@ -168,7 +164,7 @@ class Oscillator(object):
         
     
     
-    def solve_bvp(self, method='casadi', backup='casadi'):
+    def solve_bvp(self, method='scipy', backup='casadi'):
         """
         Chooses between available solver methods to solve the boundary
         value problem. Backup solver invoked in case of failure
@@ -181,14 +177,13 @@ class Oscillator(object):
 
         y0in = np.array(self.y0)
 
-        return available[method]()
-        try: return 0        
+        try: return available[method]()
         except Exception:
             self.y0 = np.array(y0in)
             try: return available[backup]()
             except Exception:
                 self.y0 = y0in
-                self.approxY0(tol=1E-4)
+                self.approx_y0_T(tol=1E-4)
                 return available[method]()
     
     def solve_bvp_scipy(self, root_method='hybr'):
@@ -267,8 +262,6 @@ class Oscillator(object):
         y0 = V[:-1]
         T = V[-1]
         param = cs.vertcat([self.param, T])
-        self.bvpint.setInput(x[:-1], cs.INTEGRATOR_X0)
-        self.bvpint.setInput(paramset + [x[-1]], cs.INTEGRATOR_P)
         yf = self.bvpint.call(cs.integratorIn(x0=y0,p=param))[0]
         fout = self.modlT.call(cs.daeIn(t=T, x=y0,p=param))[0]
         
@@ -279,7 +272,7 @@ class Oscillator(object):
         #set up the matrix we want to solve
         F = cs.MXFunction([V],[obj])
         F.init()
-        guess = np.append(self.y0,24)
+        guess = np.append(self.y0,self.T)
         solver = cs.ImplicitFunction('kinsol',F)
         solver.setOption('abstol',self.intoptions['bvp_ftol'])
         solver.setOption('strategy','linesearch')
@@ -463,7 +456,254 @@ class Oscillator(object):
             else: return 0
 
         except Exception: return -1
+    
+    def limit_cycle(self):
+        """
+        integrate the solution for one period, remembering each of time
+        points along the way
+        """
+        
+        self.ts = np.linspace(0, self.T, self.intoptions['lc_res'])
+        
+        intlc = cs.Integrator('cvodes',self.model)
+        intlc.setOption("abstol"       , self.intoptions['lc_abstol'])
+        intlc.setOption("reltol"       , self.intoptions['lc_reltol'])
+        intlc.setOption("max_num_steps", self.intoptions['lc_maxnumsteps'])
+        intlc.setOption("tf"           , self.T)
 
+        intsim = cs.Simulator(intlc, self.ts)
+        intsim.init()
+        
+        # Input Arguments
+        intsim.setInput(self.y0, cs.INTEGRATOR_X0)
+        intsim.setInput(self.param, cs.INTEGRATOR_P)
+        intsim.evaluate()
+        self.sol = intsim.output().toArray().T
+
+        # create interpolation object
+        self.lc = self.interp_sol(self.ts, self.sol.T)
+        
+    def interp_sol(self, tin, yin):
+        """
+        Function to create a periodic spline interpolater
+        """
+    
+        return jha.MultivariatePeriodicSpline(tin, yin, period=self.T)
+        
+    def calc_y0(self, trans=300, bvp_method='scipy'):
+        """
+        meta-function to call each calculation function in order for
+        unknown y0. Invoked when initial condition is unknown.
+        """
+        try: del self.pClass
+        except AttributeError: pass
+        self.burn_trans(trans)
+        self.approx_y0_T(trans/3.)
+        self.solve_bvp(method=bvp_method)
+        #self.roots()
+    
+    def check_monodromy(self):
+        """
+        Check the stability of the limit cycle by finding the
+        eigenvalues of the monodromy matrix
+        """
+
+        integrator = cs.Integrator('cvodes', self.model)
+        integrator.setOption("abstol", self.intoptions['sensabstol'])
+        integrator.setOption("reltol", self.intoptions['sensreltol'])
+        integrator.setOption("max_num_steps", self.intoptions['int_maxstepcount'])
+        integrator.setOption("sensitivity_method",
+                             self.intoptions['sensmethod']);
+        integrator.setOption("t0", 0)
+        integrator.setOption("tf", self.T)
+        integrator.setOption("fsens_err_con", 1)
+        integrator.setOption("fsens_abstol", self.intoptions['sensabstol'])
+        integrator.setOption("fsens_reltol", self.intoptions['sensreltol'])
+        integrator.init()
+        integrator.setInput(self.y0, cs.INTEGRATOR_X0)
+        integrator.setInput(self.param, cs.INTEGRATOR_P)
+        
+        intdyfdy0 = integrator.jacobian(cs.INTEGRATOR_X0, cs.INTEGRATOR_XF)
+        intdyfdy0.init()
+        intdyfdy0.setInput(self.y0,"x0")
+        intdyfdy0.setInput(self.param,"p")
+        intdyfdy0.evaluate()
+        monodromy = intdyfdy0.output().toArray()        
+        self.monodromy = monodromy
+        
+        # Calculate Floquet Multipliers, check if all (besides n_0 = 1)
+        # are inside unit circle
+        eigs = np.linalg.eigvals(monodromy)
+        self.floquet_multipliers = np.abs(eigs)
+        self.floquet_multipliers.sort()
+        idx = (np.abs(self.floquet_multipliers - 1.0)).argmin()
+        f = self.floquet_multipliers.tolist()
+        f.pop(idx)
+        
+        return np.all(np.array(f) < 1)
+        
+    def first_order_sensitivity(self):
+        """
+        Function to calculate the first order period sensitivity
+        matricies using the direct method. See Wilkins et. al. Only
+        calculates initial conditions and period sensitivities.
+        Functions for amplitude sensitivitys remain in sensitivityfns
+        """
+
+        self.check_monodromy()
+        monodromy = self.monodromy
+        
+        integrator = cs.Integrator('cvodes',self.model)
+        integrator.setOption("abstol", self.intoptions['sensabstol'])
+        integrator.setOption("reltol", self.intoptions['sensreltol'])
+        integrator.setOption("max_num_steps",
+                             self.intoptions['sensmaxnumsteps'])
+        integrator.setOption("sensitivity_method",
+                             self.intoptions['sensmethod']);
+        integrator.setOption("t0", 0)
+        integrator.setOption("tf", self.T)
+        integrator.setOption("fsens_err_con", 1)
+        integrator.setOption("fsens_abstol", self.intoptions['sensabstol'])
+        integrator.setOption("fsens_reltol", self.intoptions['sensreltol'])
+        integrator.init()
+        integrator.setInput(self.y0,cs.INTEGRATOR_X0)
+        integrator.setInput(self.param,cs.INTEGRATOR_P)
+        
+        intdyfdp = integrator.jacobian(cs.INTEGRATOR_P, cs.INTEGRATOR_XF)
+        intdyfdp.init()
+        intdyfdp.setInput(self.y0,"x0")
+        intdyfdp.setInput(self.param,"p")
+        intdyfdp.evaluate()
+        s0 = intdyfdp.output().toArray()
+        
+        self.model.init()
+        self.model.setInput(self.y0,cs.DAE_X)
+        self.model.setInput(self.param,cs.DAE_P)
+        self.model.evaluate()
+        ydot0 = self.model.output().toArray().squeeze()
+        
+        LHS = np.zeros([(self.neq + 1), (self.neq + 1)])
+        LHS[:-1,:-1] = monodromy - np.eye(len(monodromy))
+        LHS[-1,:-1] = self.dfdy(self.y0)[0]
+        LHS[:-1,-1] = ydot0
+        
+        RHS = np.zeros([(self.neq + 1), self.np])
+        RHS[:-1] = -s0
+        RHS[-1] = self.dfdp(self.y0)[0]
+        
+        unk = np.linalg.solve(LHS,RHS)
+        self.S0 = unk[:-1]
+        self.dTdp = unk[-1]
+        self.reldTdp = self.dTdp*self.param/self.T
+    
+    def find_prc(self, res=100, num_cycles=20):
+        """ Function to calculate the phase response curve with
+        specified resolution """
+
+        # Make sure the lc object exists
+        if not hasattr(self, 'lc'): self.limit_cycle()
+
+        # Get a state that is not at a local max/min (0 should be at
+        # max)
+        state_ind = 1
+        while self.dydt(self.y0)[state_ind] < 1E-5: state_ind += 1
+
+        integrator = cs.Integrator('cvodes',self.model)
+        integrator.setOption("abstol", self.intoptions['sensabstol'])
+        integrator.setOption("reltol", self.intoptions['sensreltol'])
+        integrator.setOption("max_num_steps",
+                             self.intoptions['sensmaxnumsteps'])
+        integrator.setOption("sensitivity_method",
+                             self.intoptions['sensmethod']);
+        integrator.setOption("t0", 0)
+        integrator.setOption("tf", num_cycles*self.T)
+        #integrator.setOption("numeric_jacobian", True)
+        integrator.setOption("fsens_err_con", 1)
+        integrator.setOption("fsens_abstol", self.intoptions['sensabstol'])
+        integrator.setOption("fsens_reltol", self.intoptions['sensreltol'])
+        integrator.init()
+        seed = np.zeros(self.neq)
+        seed[state_ind] = 1.
+        integrator.setInput(self.y0, cs.INTEGRATOR_X0)
+        integrator.setInput(self.param, cs.INTEGRATOR_P)
+        #adjseed = (seed, cs.INTEGRATOR_XF)
+        integrator.evaluate()#0, 1)
+        
+        int_jac = integrator.jacobian(cs.INTEGRATOR_X0,cs.INTEGRATOR_XF)
+        int_jac.init()
+        int_jac.setInput(self.y0,"x0")
+        int_jac.setInput(self.param,"p")
+        int_jac.evaluate()
+        adjsens = int_jac.getOutput().toArray().T.dot(seed)
+        
+        #adjsens = integrator.adjSens(cs.INTEGRATOR_X0).toArray().flatten()
+        
+
+        from scipy.integrate import odeint
+
+        def adj_func(y, t):
+            """ t will increase, trace limit cycle backwards through -t. y
+            is the vector of adjoint sensitivities """
+            jac = self.dfdy(self.lc((-t)%self.T))
+            return y.dot(jac)
+
+        seed = adjsens
+
+        self.prc_ts = np.linspace(0, self.T, res)
+        P = odeint(adj_func, seed, self.prc_ts)[::-1] # Adjoint matrix
+        self.sPRC = self._t_to_phi(P/self.dydt(self.y0)[state_ind])
+        dfdp = np.array([self.dfdp(self.lc(t)) for t in self.prc_ts])
+        # Must rescale f to \hat{f}, inverse of rescaling t
+        self.pPRC = np.array([self.sPRC[i].dot(self._phi_to_t(dfdp[i]))
+                              for i in xrange(len(self.sPRC))])
+        self.rel_pPRC = self.pPRC*np.array(self.param)
+
+        # Create interpolation object for the state phase response curve
+        self.sPRC_interp = self.interp_sol(self.prc_ts, self.sPRC.T)
+        
+    def _cos_components(self):
+        """ return the phases and amplitudes associated with the first
+        order fourier compenent of the limit cycle (i.e., the best-fit
+        sinusoid which fits the limit cycle) """
+    
+        if not hasattr(self, 'sol'): self.limit_cycle()
+        
+        dft_sol = np.fft.fft(self.sol[:], axis=0)
+        n = len(self.ts[:-1])
+        baseline = dft_sol[0]/n
+        comp = 2./n*dft_sol[1]
+        return np.abs(comp), np.angle(comp), baseline
+        
+    def average(self):
+        """
+        integrate the solution with quadrature to find the average 
+        species concentration. outputs to self.avg
+        """
+        
+        ffcn_in = self.model.inputExpr()
+        ode = self.model.outputExpr()
+        quad = cs.vertcat([ffcn_in[cs.DAE_X], ffcn_in[cs.DAE_X]**2])
+
+        quadmodel = cs.SXFunction(ffcn_in, cs.daeOut(ode=ode[0], quad=quad))
+
+        qint = cs.Integrator('cvodes',quadmodel)
+        qint.setOption("abstol"        , self.intoptions['lc_abstol'])
+        qint.setOption("reltol"        , self.intoptions['lc_reltol'])
+        qint.setOption("max_num_steps" , self.intoptions['lc_maxnumsteps'])
+        qint.setOption("tf",self.T)
+        qint.init()
+        qint.setInput(self.y0, cs.INTEGRATOR_X0)
+        qint.setInput(self.param, cs.INTEGRATOR_P)
+        qint.evaluate()
+        quad_out = qint.output(cs.INTEGRATOR_QF).toArray().squeeze()
+        self.avg = quad_out[:self.neq]/self.T
+        self.rms = np.sqrt(quad_out[self.neq:]/self.T)
+        self.std = np.sqrt(self.rms**2 - self.avg**2)
+
+    def lc_phi(self, phi):
+        """ interpolate the selc.lc interpolation object using a time on
+        (0,2*pi) """
+        return self.lc(self._phi_to_t(phi%(2*np.pi)))
 
 if __name__ == "__main__":
     
@@ -481,22 +721,31 @@ if __name__ == "__main__":
     print tyson.y0, 'y0 burn time = %0.3f' %(lap() ) 
     
     # or find a max and the approximate period
-    tyson.y0 = np.ones(EqCount)
     tyson.approx_y0_T()
     print tyson.y0, tyson.T, 'y0 approx time = %0.3f' %(lap() )
     
     # find the period and y0 using a BVP solution
-    tyson.y0 = np.ones(EqCount)
     tyson.solve_bvp(method='scipy')
     print tyson.y0, tyson.T, 'y0 scipy bvp time = %0.3f' %(lap() )
     
     # find the period and y0 using a BVP solution
-    tyson.y0 = np.ones(EqCount)
     tyson.solve_bvp(method='casadi')
     print tyson.y0, tyson.T, 'y0 casadi bvp time = %0.3f' %(lap() )
 
     # find steady state soln (fixed pt)
     tyson.find_stationary()
     print tyson.ss, 'stationary time = %0.3f' %(lap() )
+        # or perform everything all at once
+    tyson = Oscillator(model(), param, np.ones(EqCount))
+    tyson.calc_y0()
+    print tyson.y0, tyson.T, 'y0 start-finish = %0.3f' %(lap() )
+    
+    # adiitional analysis tools
+    tyson.limit_cycle()
+    tyson.first_order_sensitivity()
+    intg = tyson.find_prc()
+    
+    
+
 
 

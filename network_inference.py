@@ -21,8 +21,6 @@ import networkx as nx
 import pywt
 import collections
 
-from jha_utilities import corrsort, cmap_rb
-
 from scoop import futures
 
 import pdb
@@ -36,8 +34,8 @@ class network(object):
     JH Abel
     
     Things it can go:
-        detrend                     - hodrick-prescott, linear
-        infer                       - MIC, kirsten's MI (bad), corrsort
+        detrend                     - hodrick-prescott, linear, wavelet
+        infer                       - MIC, correlations, corrsort
         create adjacency matrices   - either input them or generate from MIC
         find instantaneous phase    - either with hilbert transform, dwt
         
