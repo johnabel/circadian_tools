@@ -22,7 +22,7 @@ modelversion='three-state'
 
 period = 23.7000
 
-vol=50
+vol=40
 
 y0in=np.array([2.1, 0.34, 0.42])
         
@@ -36,34 +36,34 @@ def ODEmodel():
     #==================================================================
     #State variable definitions
     #==================================================================
-    M    = cs.ssym("M")
-    Pc   = cs.ssym("Pc")
-    Pn   = cs.ssym("Pn")
+    M    = cs.SX.sym("M")
+    Pc   = cs.SX.sym("Pc")
+    Pn   = cs.SX.sym("Pn")
     
     #for Casadi
     y = cs.vertcat([M, Pc, Pn])
     
     # Time Variable
-    t = cs.ssym("t")
+    t = cs.SX.sym("t")
     
     
     #===================================================================
     #Parameter definitions
     #===================================================================
     
-    vs0 = cs.ssym('vs0')
-    light = cs.ssym('light')
-    alocal = cs.ssym('alocal')
-    couplingStrength = cs.ssym('couplingStrength')
-    n = cs.ssym('n')
-    vm = cs.ssym('vm')
-    k1 = cs.ssym('k1')
-    km = cs.ssym('km')
-    ks = cs.ssym('ks')
-    vd = cs.ssym('vd')
-    kd = cs.ssym('kd')
-    k1_ = cs.ssym('k1_')
-    k2_ = cs.ssym('k2_')    
+    vs0 = cs.SX.sym('vs0')
+    light = cs.SX.sym('light')
+    alocal = cs.SX.sym('alocal')
+    couplingStrength = cs.SX.sym('couplingStrength')
+    n = cs.SX.sym('n')
+    vm = cs.SX.sym('vm')
+    k1 = cs.SX.sym('k1')
+    km = cs.SX.sym('km')
+    ks = cs.SX.sym('ks')
+    vd = cs.SX.sym('vd')
+    kd = cs.SX.sym('kd')
+    k1_ = cs.SX.sym('k1_')
+    k2_ = cs.SX.sym('k2_')    
 
     paramset = cs.vertcat([vs0, light, alocal, couplingStrength,
                            n,   vm,    k1,     km, 
@@ -126,14 +126,14 @@ def SSAmodel(fn,y0in,param):
     
     #collects state and parameter array to be converted to species and parameter objects,
     #makes copies of the names so that they are on record
-    species_array = [fn.inputSX(cs.DAE_X)[i].getDescription()
+    species_array = [fn.inputExpr(cs.DAE_X)[i].getName()
                     for i in xrange(EqCount)]
-    param_array   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_array   = [fn.inputExpr(cs.DAE_P)[i].getName()
                     for i in xrange(ParamCount)]
     
-    state_names = [fn.inputSX(cs.DAE_X)[i].getDescription()
+    state_names = [fn.inputExpr(cs.DAE_X)[i].getName()
                         for i in xrange(EqCount)]  
-    param_names   = [fn.inputSX(cs.DAE_P)[i].getDescription()
+    param_names   = [fn.inputExpr(cs.DAE_P)[i].getName()
                         for i in xrange(ParamCount)]
 
     #creates SSAmodel class object    
@@ -185,40 +185,43 @@ def SSAmodel(fn,y0in,param):
 if __name__=='__main__':
     
     # runs and compares one stochastic trajectory with deterministic solution
-    import matplotlib.gridspec as gridspec
-    
-    ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
-    sol = ODEsolC.intODEs_sim(y0in,100)
-    tsol = ODEsolC.ts
-    
-    
-    tf=100
-    inc = 0.05
-    
-    SSAnet,state_names,param_names = SSAmodel(ODEmodel(),
-                                                    y0in,param)
-                                                    
-    traj = stk.stochkit(SSAnet,job_id='threestate',t=tf,
-                               number_of_trajectories=100,increment=inc,
-                               seed=11)
-                               
-    plo.PlotOptions()
-    plt.figure(figsize=(3.5*2,2.62))
-    gs = gridspec.GridSpec(1,2)
-    
-    ax0=plt.subplot(gs[0,0])
-    ax0.plot(tsol,sol,label=['M','C','N'])
-    ax0.set_xlabel('Time, hr')
-    ax0.set_ylabel('SV Concentration')
-    
-    ax1=plt.subplot(gs[0,1])
-    seval = stk.StochEval(traj,state_names,param_names,vol)
-    seval.PlotAvg('M')
-    ax1.set_xlabel('Time, hr')
-    ax1.set_ylabel('SV Count')
-    
-    plt.tight_layout(**plo.layout_pad)
-    plt.show()
+import matplotlib.gridspec as gridspec
+
+odes = ctb.Oscillator(ODEmodel(), param, y0in)
+odes.calc_y0()
+odes.limit_cycle()
+odes.first_order_sensitivity()
+odes.find_prc()
+
+tf=500.
+inc = 0.1
+
+SSAnet,state_names,param_names = SSAmodel(ODEmodel(),
+                                                y0in,param)
+                                                
+traj = stk.stochkit(SSAnet,job_id='threestate',t=tf,
+                           number_of_trajectories=300,increment=inc,
+                           seed=11)
+
+
+
+plo.PlotOptions()
+plt.figure(figsize=(3.5*2,2.62))
+gs = gridspec.GridSpec(1,2)
+
+ax0=plt.subplot(gs[0,0])
+ax0.plot(tsol,sol,label=['M','C','N'])
+ax0.set_xlabel('Time, hr')
+ax0.set_ylabel('SV Concentration')
+
+ax1=plt.subplot(gs[0,1])
+seval = stk.StochEval(traj,state_names,param_names,vol)
+seval.PlotAvg('M')
+ax1.set_xlabel('Time, hr')
+ax1.set_ylabel('SV Count')
+
+plt.tight_layout(**plo.layout_pad)
+plt.show()
     pass
 
 

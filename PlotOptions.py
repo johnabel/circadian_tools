@@ -13,10 +13,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-# from CommonFiles.mimic_alpha import colorAlpha_to_rgb
+from mimic_alpha import colorAlpha_to_rgb
 
 
-def PlotOptions(uselatex=False):
+def PlotOptions(uselatex=False, ticks='out'):
 
     import matplotlib
     import matplotlib.axis, matplotlib.scale 
@@ -77,8 +77,8 @@ def PlotOptions(uselatex=False):
         matplotlib.rc('font', family='serif')
     
     from matplotlib import rcParams
-    rcParams['xtick.direction'] = 'out'
-    rcParams['ytick.direction'] = 'out'
+    rcParams['xtick.direction'] = ticks
+    rcParams['ytick.direction'] = ticks
             
         
 
@@ -106,6 +106,30 @@ def format_2pi_axis(ax, x=True, y=False):
         ax.set_yticklabels([r'$-\pi$', r'$-\nicefrac{\pi}{2}$','$0$',
                             r'$\nicefrac{\pi}{2}$', r'$\pi$'])
 
+
+def format_4pi_axis(ax, x=True, y=False):
+    import numpy as np
+    if x:
+        ax.set_xticks([0, np.pi, 2*np.pi, 3*np.pi, 4*np.pi])
+        ax.set_xlim([0, 4*np.pi])
+        ax.set_xticklabels(['$0$', r'$\pi$', r'$2\pi$',
+                            r'$3\pi$', r'$4\pi$'])
+    if y:
+        ax.set_yticks([0, np.pi, 2*np.pi, 3*np.pi, 4*np.pi])
+        ax.set_ylim([0, 4*np.pi])
+        ax.set_yticklabels(['$0$', r'$\pi$', r'$2\pi$',
+                            r'$3\pi$', r'$4\pi$'])
+
+def format_npi_axis(ax, n=6, x=True, y=False):
+    import numpy as np
+    if x:
+        ax.set_xticks([nn*np.pi for nn in range(n+1)])
+        ax.set_xlim([0, n*np.pi])
+        ax.set_xticklabels(['$0$', r'$\pi$', r'$2\pi$',
+                            r'$3\pi$', r'$4\pi$', '$5\pi$', r'$6\pi$'])
+    if y:
+        pass
+    
 # def highlight_xrange(ax, xmin, xmax, color='y', alpha=0.5, **kwargs):
 #     ax.axvspan(xmin, xmax, color=color, alpha=alpha, **kwargs)
 
@@ -173,6 +197,27 @@ def histogram(ax, data1=None, data2=None, color1=blue, color2=red,
     else: 
         ax.legend(loc='upper left')
         return hist1
+
+def boxplot(ax, data, color='k', sym='b.'):
+    """ Create a nice-looking boxplot with the data in data. Columns
+    should be the different samples. sym handles the outlier mark,
+    default is no mark. """
+
+    data = np.asarray(data)
+    # Shortcut method if there is no nan data
+    if not np.any(np.isnan(data)): cdata = data
+    else:
+        cdata = [col[~np.isnan(col)] for col in data.T]
+
+    bp = ax.boxplot(cdata, sym=sym, widths=0.65)
+    plt.setp(bp['medians'], color=color, linewidth=0.75,
+             solid_capstyle='butt')
+    plt.setp(bp['boxes'], color=color, linewidth=0.5)
+    plt.setp(bp['whiskers'], color=color, linewidth=0.5, linestyle='--',
+             dashes=(4,3))
+    plt.setp(bp['caps'], color=color, linewidth=0.5)
+    plt.setp(bp['fliers'], markerfacecolor=color, markeredgecolor=color)
+    hide_spines(ax)
 
 def hide_spines(ax):
     """Hides the top and rightmost axis spines from view for all active

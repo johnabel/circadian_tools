@@ -140,10 +140,6 @@ def ODEmodel():
                            kdv   , vdVIP , kdVIP  , 
                            vdCREB, kdCREB, ktlnv  , vgpka  , 
                            kgpka, ktlnc,kcouple])
-                        
-
-    for i in xrange(paramset.shape[0]):
-        print paramset[i],round(param[i],3)
 
     #===================================================================
     # Model Equations

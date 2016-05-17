@@ -37,18 +37,18 @@ def model():
     #==================================================================
     #setup of symbolics
     #==================================================================
-    MP   = cs.ssym("MP")   # mRNA of per
-    MC   = cs.ssym("MC")   # mRNA of cry
-    PC   = cs.ssym("PC")   # PER protein (cytosol)
-    CC   = cs.ssym("CC")   # CRY protein (cytosol)
-    PCC  = cs.ssym("PCC")  # PER:CRY complex (cytosol)
-    PCN  = cs.ssym("PCN")  # PER:CRY complex (nucleus)
-    BC   = cs.ssym("BC")   # protein BMAL1 (cytosol)
-    BN   = cs.ssym("BN")   # [CLOCK:BMAL1]==nuclear BMAL1 protein
-    BNac = cs.ssym("BNac") # Transcriptionally active (acetylated) BMAL1 complex
-    MN   = cs.ssym("MN")   # mRNA of Nampt
-    N    = cs.ssym("N")    # protein NAMPT
-    NAD  = cs.ssym("NAD")  # cellular NAD levels
+    MP   = cs.SX.sym("MP")   # mRNA of per
+    MC   = cs.SX.sym("MC")   # mRNA of cry
+    PC   = cs.SX.sym("PC")   # PER protein (cytosol)
+    CC   = cs.SX.sym("CC")   # CRY protein (cytosol)
+    PCC  = cs.SX.sym("PCC")  # PER:CRY complex (cytosol)
+    PCN  = cs.SX.sym("PCN")  # PER:CRY complex (nucleus)
+    BC   = cs.SX.sym("BC")   # protein BMAL1 (cytosol)
+    BN   = cs.SX.sym("BN")   # [CLOCK:BMAL1]==nuclear BMAL1 protein
+    BNac = cs.SX.sym("BNac") # Transcriptionally active (acetylated) BMAL1 complex
+    MN   = cs.SX.sym("MN")   # mRNA of Nampt
+    N    = cs.SX.sym("N")    # protein NAMPT
+    NAD  = cs.SX.sym("NAD")  # cellular NAD levels
     
     sys = cs.vertcat([MP, MC, PC, CC, PCC, PCN, BC, BN, BNac, MN, N, NAD])
 
@@ -62,57 +62,57 @@ def model():
     r_p = 3; 
     r_c = 3; 
     
-    V1PC     = cs.ssym("V1PC")
-    KAN      = cs.ssym("KAN")
-    V3PC     = cs.ssym("V3PC")
-    k1       = cs.ssym("k1")
-    vmN      = cs.ssym("vmN")
-    k2       = cs.ssym("k2")
-    Kp_pcc   = cs.ssym("Kp_pcc")
-    Kp_bc    = cs.ssym("Kp_bc")
-    KmN      = cs.ssym("KmN")
-    Kp_c     = cs.ssym("Kp_c")
-    vmP      = cs.ssym("vmP")
-    k5       = cs.ssym("k5")
-    k3       = cs.ssym("k3")
-    V1B      = cs.ssym("V1B")
-    vsn      = cs.ssym("vsn")
-    V1C      = cs.ssym("V1C")
-    Kp_pcn   = cs.ssym("Kp_pcn")
-    Kac_bn   = cs.ssym("Kac_bn")
-    Kd_bn    = cs.ssym("Kd_bn")
-    V4B      = cs.ssym("V4B")
-    Kdac_bn  = cs.ssym("Kdac_bn")
-    MB0      = cs.ssym("MB0")
-    KAP      = cs.ssym("KAP")
-    KAC      = cs.ssym("KAC")
-    vdBN     = cs.ssym("vdBN")
-    V3B      = cs.ssym("V3B")
-    ksN      = cs.ssym("ksN")
-    sn       = cs.ssym("sn")
-    vm_NAMPT = cs.ssym("vm_NAMPT")
-    vm_NAD   = cs.ssym("vm_NAD")
-    Km_NAMPT = cs.ssym("Km_NAMPT")
-    Km_NAD   = cs.ssym("Km_NAD")
-    v0p      = cs.ssym("v0p")
-    v0c      = cs.ssym("v0c")
-    v0n      = cs.ssym("v0n")
-    vsP      = cs.ssym("vsP")
-    vsC      = cs.ssym("vsC")
-    kd       = cs.ssym("kd")
-    k6       = cs.ssym("k6")
-    ksB      = cs.ssym("ksB")
-    ksP      = cs.ssym("ksP")
-    ksC      = cs.ssym("ksC")
-    k4       = cs.ssym("k4")
-    Kp_p     = cs.ssym("Kp_p")
-    vmC      = cs.ssym("vmC")
-    KmP      = cs.ssym("KmP")
-    KmC      = cs.ssym("KmC")
-    V1P      = cs.ssym("V1P")
-    Rp       = cs.ssym("Rp")
-    Rc       = cs.ssym("Rc")
-    Rn       = cs.ssym("Rn")
+    V1PC     = cs.SX.sym("V1PC")
+    KAN      = cs.SX.sym("KAN")
+    V3PC     = cs.SX.sym("V3PC")
+    k1       = cs.SX.sym("k1")
+    vmN      = cs.SX.sym("vmN")
+    k2       = cs.SX.sym("k2")
+    Kp_pcc   = cs.SX.sym("Kp_pcc")
+    Kp_bc    = cs.SX.sym("Kp_bc")
+    KmN      = cs.SX.sym("KmN")
+    Kp_c     = cs.SX.sym("Kp_c")
+    vmP      = cs.SX.sym("vmP")
+    k5       = cs.SX.sym("k5")
+    k3       = cs.SX.sym("k3")
+    V1B      = cs.SX.sym("V1B")
+    vsn      = cs.SX.sym("vsn")
+    V1C      = cs.SX.sym("V1C")
+    Kp_pcn   = cs.SX.sym("Kp_pcn")
+    Kac_bn   = cs.SX.sym("Kac_bn")
+    Kd_bn    = cs.SX.sym("Kd_bn")
+    V4B      = cs.SX.sym("V4B")
+    Kdac_bn  = cs.SX.sym("Kdac_bn")
+    MB0      = cs.SX.sym("MB0")
+    KAP      = cs.SX.sym("KAP")
+    KAC      = cs.SX.sym("KAC")
+    vdBN     = cs.SX.sym("vdBN")
+    V3B      = cs.SX.sym("V3B")
+    ksN      = cs.SX.sym("ksN")
+    sn       = cs.SX.sym("sn")
+    vm_NAMPT = cs.SX.sym("vm_NAMPT")
+    vm_NAD   = cs.SX.sym("vm_NAD")
+    Km_NAMPT = cs.SX.sym("Km_NAMPT")
+    Km_NAD   = cs.SX.sym("Km_NAD")
+    v0p      = cs.SX.sym("v0p")
+    v0c      = cs.SX.sym("v0c")
+    v0n      = cs.SX.sym("v0n")
+    vsP      = cs.SX.sym("vsP")
+    vsC      = cs.SX.sym("vsC")
+    kd       = cs.SX.sym("kd")
+    k6       = cs.SX.sym("k6")
+    ksB      = cs.SX.sym("ksB")
+    ksP      = cs.SX.sym("ksP")
+    ksC      = cs.SX.sym("ksC")
+    k4       = cs.SX.sym("k4")
+    Kp_p     = cs.SX.sym("Kp_p")
+    vmC      = cs.SX.sym("vmC")
+    KmP      = cs.SX.sym("KmP")
+    KmC      = cs.SX.sym("KmC")
+    V1P      = cs.SX.sym("V1P")
+    Rp       = cs.SX.sym("Rp")
+    Rc       = cs.SX.sym("Rc")
+    Rn       = cs.SX.sym("Rn")
 
     paramset = cs.vertcat(
         [V1PC, KAN, V3PC, k1, vmN, k2, Kp_pcc, Kp_bc, KmN, Kp_c, vmP,
@@ -122,7 +122,7 @@ def model():
          Kp_p, vmC, KmP, KmC, V1P, Rp, Rc, Rn])
 
     #time
-    t = cs.ssym("t")
+    t = cs.SX.sym("t")
     
     ode = [[]]*EqCount #initializes vector
     

@@ -23,7 +23,7 @@ modelversion='threest230_'
 
 
 period = 23.7000
-couplingstr = 0.005 #default is 1
+couplingstr = 0.01 #default is 1
 
 randomy0 = False
 
@@ -255,6 +255,7 @@ def ssa_resync(fn,y0in_desync,param,cellcount,adjacency,couplingstr=couplingstr,
     #creates SSAmodel class object
     SSA_builder = mb.SSA_builder(species_array,param_array,y0in_pop,param,SSAmodel,vol)
     
+    # now set up mean field(?) coupling for all uncoupled cells
 
     #coupling section
     for indx in range(cellcount):
@@ -271,7 +272,11 @@ def ssa_resync(fn,y0in_desync,param,cellcount,adjacency,couplingstr=couplingstr,
                 #The Coupling Part
                 mcount = mcount+couplingstr
                 avg = avg+'+M_'+str(fromcell)+'_0*'+str(couplingstr)
-
+            if mcount==1:
+                # then the cell is "uncoupled" so we'll put it to a mean field
+                for fromcell in range(cellcount):
+                    mcount +=couplingstr*0.25/cellcount
+                    avg = avg+'+M_'+str(fromcell)+'_0*0.33*'+str(couplingstr/cellcount)
 
         weight = 1.0/mcount
         #FIXES PARAMETERS FROM DETERMINISTIC TO STOCHASTIC VALUES
@@ -314,7 +319,7 @@ def ssa_resync(fn,y0in_desync,param,cellcount,adjacency,couplingstr=couplingstr,
         SSA_builder.SSA_MA_cytonuc('Cell'+str(indx)+'_Reaction4','Pc'+index,
                                    'Pn'+index,'k1_','k2_')
         
-
+    print 'weak, mean-field coupling'
     return SSAmodel,state_names,param_names
     
 

@@ -198,7 +198,7 @@ class PeriodicSpline(UnivariateSpline):
         #_data == x,y,w,xb,xe,k,s,n,t,c,fp,fpint,nrdata,ier
         self._data = (None,None,None,None,None,k,None,len(t),t,
                       c,None,None,None,None)
-
+        self.ext = 0
         return self
 
 
@@ -226,7 +226,7 @@ class ComplexPeriodicSpline:
 
 
 class MultivariatePeriodicSpline(object):
-    def __init__(self, x, ys, period=2*np.pi, sfactor=0):
+    def __init__(self, x, ys, period=2*np.pi, sfactor=0, k=3):
         """ 
         A PCSJ spline class
         Combination class that supports a multi-dimensional input,
@@ -240,7 +240,7 @@ class MultivariatePeriodicSpline(object):
         self.splines = fnlist([])
         for y in np.atleast_2d(ys):
             y = y.squeeze()
-            self.splines += [splinefn(x, y, period, sfactor)]
+            self.splines += [splinefn(x, y, period, sfactor, k)]
 
     def __call__(self, x, d=0):
         return self.splines(x, d).T

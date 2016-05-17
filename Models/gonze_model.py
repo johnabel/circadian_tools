@@ -36,43 +36,43 @@ period = 30.27
 def gonze_model_ode():
     
     # For two oscillators
-    X1 = cs.ssym('X1')
-    Y1 = cs.ssym('Y1')
-    Z1 = cs.ssym('Z1')
-    V1 = cs.ssym('V1')
+    X1 = cs.SX.sym('X1')
+    Y1 = cs.SX.sym('Y1')
+    Z1 = cs.SX.sym('Z1')
+    V1 = cs.SX.sym('V1')
     
-    X2 = cs.ssym('X2')
-    Y2 = cs.ssym('Y2')
-    Z2 = cs.ssym('Z2')
-    V2 = cs.ssym('V2')
+    X2 = cs.SX.sym('X2')
+    Y2 = cs.SX.sym('Y2')
+    Z2 = cs.SX.sym('Z2')
+    V2 = cs.SX.sym('V2')
     
     state_set = cs.vertcat([X1, Y1, Z1, V1,
                             X2, Y2, Z2, V2])
 
     # Parameter Assignments
-    v1  = cs.ssym('v1')
-    K1  = cs.ssym('K1')
-    n   = cs.ssym('n')
-    v2  = cs.ssym('v2')
-    K2  = cs.ssym('K2')
-    k3  = cs.ssym('k3')
-    v4  = cs.ssym('v4')
-    K4  = cs.ssym('K4')
-    k5  = cs.ssym('k5')
-    v6  = cs.ssym('v6')
-    K6  = cs.ssym('K6')
-    k7  = cs.ssym('k7')
-    v8  = cs.ssym('v8')
-    K8  = cs.ssym('K8')
-    vc  = cs.ssym('vc')
-    Kc  = cs.ssym('Kc')
-    K   = cs.ssym('K')
-    L   = cs.ssym('L')
+    v1  = cs.SX.sym('v1')
+    K1  = cs.SX.sym('K1')
+    n   = cs.SX.sym('n')
+    v2  = cs.SX.sym('v2')
+    K2  = cs.SX.sym('K2')
+    k3  = cs.SX.sym('k3')
+    v4  = cs.SX.sym('v4')
+    K4  = cs.SX.sym('K4')
+    k5  = cs.SX.sym('k5')
+    v6  = cs.SX.sym('v6')
+    K6  = cs.SX.sym('K6')
+    k7  = cs.SX.sym('k7')
+    v8  = cs.SX.sym('v8')
+    K8  = cs.SX.sym('K8')
+    vc  = cs.SX.sym('vc')
+    Kc  = cs.SX.sym('Kc')
+    K   = cs.SX.sym('K')
+    L   = cs.SX.sym('L')
     
     param_set = cs.vertcat([v1,K1,n,v2,K2,k3,v4,K4,k5,v6,K6,k7,v8,K8,vc,Kc,K,L])
 
     # Time
-    t = cs.ssym('t')
+    t = cs.SX.sym('t')
 
     # oscillators
     ode = [[]]*neq
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     import circadiantoolbox as ctb
 
     # create deterministic circadian object
-    gonze_odes = ctb.CircEval(gonze_model_ode(), param, y0in)
+    gonze_odes = ctb.Oscillator(gonze_model_ode(), param, y0in)
     gonze_odes.burnTransient_sim()
     gonze_odes.intODEs_sim(200)
     

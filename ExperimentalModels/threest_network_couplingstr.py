@@ -25,6 +25,8 @@ modelversion='threest230_'
 period = 23.7000
 couplingstr = 0.005 #default is 1
 
+vol=40
+
 randomy0 = False
 
 y0in=np.array([2.1, 0.34, 0.42])
@@ -115,7 +117,7 @@ def ODEmodel():
     #==================================================================
     # Stochastic Model Portion
     #==================================================================
-def ssa_desync(fn,y0in,param,cellcount,adjacency=0,vol=40):
+def ssa_desync(fn,y0in,param,cellcount,couplingstr=couplingstr,adjacency=0):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)
@@ -218,7 +220,7 @@ def ssa_desync(fn,y0in,param,cellcount,adjacency=0,vol=40):
 
     return SSAmodel,state_names,param_names
     
-def ssa_resync(fn,y0in_desync,param,cellcount,adjacency,couplingstr=couplingstr, vol=40):
+def ssa_resync(fn,y0in_desync,param,cellcount,adjacency):
     """
     This is the network-level SSA model, with coupling. Call with:
         SSAcoupled,state_names,param_names = SSAmodelC(ODEmodel(),y0in,param)

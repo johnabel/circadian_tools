@@ -76,21 +76,22 @@ class Oscillator(object):
             'sensreltol'       : 1E-9,
             'sensmaxnumsteps'  : 80000,
             'sensmethod'       : 'staggered',
-            'transabstol'      : 1E-4,
-            'transreltol'      : 1E-4,
+            'transabstol'      : 1E-6,
+            'transreltol'      : 1E-6,
             'transmaxnumsteps' : 5000,
             'lc_abstol'        : 1E-11,
             'lc_reltol'        : 1E-9,
             'lc_maxnumsteps'   : 40000,
             'lc_res'           : 200,
-            'int_abstol'       : 1E-8,
-            'int_reltol'       : 1E-6,
-            'int_maxstepcount' : 40000
+            'int_abstol'       : 1E-10,
+            'int_reltol'       : 1E-8,
+            'int_maxstepcount' : 40000,
+            'constraints'      : 'positive'
                 }
 
         if y0 is None:
-            self.y0 = 5*np.ones(self.NEQ+1)
-            self.calcY0(25*period_guess)
+            self.y0 = 5*np.ones(self.neq)
+            self.calc_y0(25*period_guess)
         else: self.y0 = np.asarray_chkfinite(y0)     
     
     # shortcuts
@@ -123,14 +124,14 @@ class Oscillator(object):
         self.modlT.setOption("name","T-shifted model")  
         
         
-    def int_odes(self, tf, y0=None, numsteps=10000, return_endpt=False):
+    def int_odes(self, tf, y0=None, numsteps=10000, return_endpt=False, ts=0):
         """
         This function integrates the ODEs until well past the transients. 
         This uses Casadi's simulator class, C++ wrapped in swig. Inputs:
             tf          -   the final time of integration.
             numsteps    -   the number of steps in the integration is the second argument
         """
-        if y0==None: y0 = self.y0
+        if y0 is None: y0 = self.y0
         
         self.integrator = cs.Integrator('cvodes',self.model)
         
@@ -142,10 +143,10 @@ class Oscillator(object):
         
         #Let's integrate
         self.integrator.init()
-        self.ts = np.linspace(0,tf, numsteps, endpoint=False)
+        self.ts = np.linspace(ts,tf, numsteps, endpoint=True)
         self.simulator = cs.Simulator(self.integrator, self.ts)
         self.simulator.init()
-        self.simulator.setInput((y0[:]),cs.INTEGRATOR_X0)
+        self.simulator.setInput(y0,cs.INTEGRATOR_X0)
         self.simulator.setInput(self.param,cs.INTEGRATOR_P)
         self.simulator.evaluate()
         	
@@ -207,7 +208,8 @@ class Oscillator(object):
         def bvp_minimize_function(x):
             """ Minimization objective. X = [y0,T] """
             # perhaps penalize in try/catch?
-            if np.any(x < 0): return np.ones(3)
+            if all([self.intoptions['constraints']=='positive', 
+                   np.any(x < 0)]): return np.ones(3)
             self.bvpint.setInput(x[:-1], cs.INTEGRATOR_X0)
             self.bvpint.setInput(paramset + [x[-1]], cs.INTEGRATOR_P)
             self.bvpint.evaluate()
@@ -279,7 +281,8 @@ class Oscillator(object):
         solver.setOption('exact_jacobian', False)
         solver.setOption('pretype', 'both')
         solver.setOption('use_preconditioner', True)
-        solver.setOption('constraints', (2,)*(self.neq+1))
+        if self.intoptions['constraints']=='positive':
+            solver.setOption('constraints', (2,)*(self.neq+1))
         solver.setOption('linear_solver_type', 'dense')
         solver.init()
         solver.setInput(guess)
@@ -298,7 +301,7 @@ class Oscillator(object):
         try:
             out = []
             for yi in y:
-                assert len(yi) == self.NEQ
+                assert len(yi) == self.neq
                 self.model.setInput(yi,cs.DAE_X)
                 self.model.setInput(self.param,cs.DAE_P)
                 self.model.evaluate()
@@ -321,7 +324,7 @@ class Oscillator(object):
         try:
             out = []
             for yi in y:
-                assert len(yi) == self.NEQ
+                assert len(yi) == self.neq
                 self.jacp.setInput(yi,cs.DAE_X)
                 self.jacp.setInput(p,cs.DAE_P)
                 self.jacp.evaluate()
@@ -343,7 +346,7 @@ class Oscillator(object):
         try:
             out = []
             for yi in y:
-                assert len(yi) == self.NEQ
+                assert len(yi) == self.neq
                 self.jacy.setInput(yi,cs.DAE_X)
                 self.jacy.setInput(p,cs.DAE_P)
                 self.jacy.evaluate()
@@ -363,7 +366,6 @@ class Oscillator(object):
         creating a spline representation, and comparing the max values using
         state 0.        
         """
-        from jha_utilities import roots
         
         if burn_trans==True:
             self.burn_trans()
@@ -396,7 +398,7 @@ class Oscillator(object):
         else:
             self.T = -1
 
-    def corestationary(self,guess=None):
+    def corestationary(self,guess=None,contstraints='positive'):
         """
         find stationary solutions that satisfy ydot = 0 for stability
         analysis. 
@@ -412,7 +414,9 @@ class Oscillator(object):
         kfn = cs.ImplicitFunction('kinsol',fn)
         abstol = 1E-10
         kfn.setOption("abstol",abstol)
-        kfn.setOption("constraints",(2,)*self.neq) # constain using kinsol to >0
+        if self.intoptions['constraints']=='positive': 
+            # constain using kinsol to >0, for physical
+            kfn.setOption("constraints",(2,)*self.neq) 
         kfn.setOption("linear_solver_type","dense")
         kfn.setOption("exact_jacobian",True)
         kfn.setOption("u_scale",(100/guess).tolist())
@@ -430,8 +434,8 @@ class Oscillator(object):
         self.ss = y0out.flatten()
         
         if np.linalg.norm(self.dydt(self.ss)) >= abstol or any(y0out <= 0):
-            raise RuntimeError("findstationary: KINSOL failed to reach \
-                               acceptable bounds")
+            raise RuntimeError("findstationary: KINSOL failed to reach"+
+                                " acceptable bounds")
               
         self.eigs = np.linalg.eigvals(self.dfdy(self.ss))
 
@@ -528,7 +532,8 @@ class Oscillator(object):
         intdyfdy0.setInput(self.y0,"x0")
         intdyfdy0.setInput(self.param,"p")
         intdyfdy0.evaluate()
-        monodromy = intdyfdy0.output().toArray()        
+        monodromy = intdyfdy0.output().toArray()   
+        
         self.monodromy = monodromy
         
         # Calculate Floquet Multipliers, check if all (besides n_0 = 1)
@@ -599,15 +604,15 @@ class Oscillator(object):
     def find_prc(self, res=100, num_cycles=20):
         """ Function to calculate the phase response curve with
         specified resolution """
-
+    
         # Make sure the lc object exists
         if not hasattr(self, 'lc'): self.limit_cycle()
-
+        
         # Get a state that is not at a local max/min (0 should be at
         # max)
         state_ind = 1
-        while self.dydt(self.y0)[state_ind] < 1E-5: state_ind += 1
-
+        while np.abs(self.dydt(self.y0)[state_ind]) < 1E-5: state_ind += 1
+        
         integrator = cs.Integrator('cvodes',self.model)
         integrator.setOption("abstol", self.intoptions['sensabstol'])
         integrator.setOption("reltol", self.intoptions['sensreltol'])
@@ -629,37 +634,186 @@ class Oscillator(object):
         #adjseed = (seed, cs.INTEGRATOR_XF)
         integrator.evaluate()#0, 1)
         
-        int_jac = integrator.jacobian(cs.INTEGRATOR_X0,cs.INTEGRATOR_XF)
-        int_jac.init()
-        int_jac.setInput(self.y0,"x0")
-        int_jac.setInput(self.param,"p")
-        int_jac.evaluate()
-        adjsens = int_jac.getOutput().toArray().T.dot(seed)
+        monodromy = integrator.jacobian(cs.INTEGRATOR_X0,cs.INTEGRATOR_XF)
+        monodromy.init()
+        monodromy.setInput(self.y0,"x0")
+        monodromy.setInput(self.param,"p")
+        monodromy.evaluate()
+        # initial state is Kcross(T,T) = I
+        adjsens = monodromy.getOutput().toArray().T.dot(seed)
         
-        #adjsens = integrator.adjSens(cs.INTEGRATOR_X0).toArray().flatten()
-        
-
         from scipy.integrate import odeint
-
         def adj_func(y, t):
             """ t will increase, trace limit cycle backwards through -t. y
             is the vector of adjoint sensitivities """
             jac = self.dfdy(self.lc((-t)%self.T))
             return y.dot(jac)
-
+            
         seed = adjsens
-
         self.prc_ts = np.linspace(0, self.T, res)
-        P = odeint(adj_func, seed, self.prc_ts)[::-1] # Adjoint matrix
+        P = odeint(adj_func, seed, self.prc_ts)[::-1] # Adjoint matrix at t 
+
         self.sPRC = self._t_to_phi(P/self.dydt(self.y0)[state_ind])
+        
         dfdp = np.array([self.dfdp(self.lc(t)) for t in self.prc_ts])
         # Must rescale f to \hat{f}, inverse of rescaling t
-        self.pPRC = np.array([self.sPRC[i].dot(self._phi_to_t(dfdp[i]))
+        self.pPRC = self._t_to_phi(
+                        np.array([self.sPRC[i].dot(self._phi_to_t(dfdp[i]))
                               for i in xrange(len(self.sPRC))])
+                                  )
         self.rel_pPRC = self.pPRC*np.array(self.param)
 
         # Create interpolation object for the state phase response curve
-        self.sPRC_interp = self.interp_sol(self.prc_ts, self.sPRC.T)
+        self.sPRC_interp = self.interp_sol(self.prc_ts, self.sPRC.T) #phi units
+        self.pPRC_interp = self.interp_sol(self.prc_ts, self.pPRC.T) #phi units
+        
+    def _create_ARC_model(self, numstates=1):
+        """ Create model with quadrature for amplitude sensitivities
+        numstates might allow us to calculate entire sARC at once, but
+        now will use seed method. """
+
+        # Allocate symbolic vectors for the model
+        dphidx = cs.SX.sym('dphidx', numstates)
+        t      = self.model.inputExpr(cs.DAE_T)    # time
+        xd     = self.model.inputExpr(cs.DAE_X)    # differential state
+        s      = cs.SX.sym("s", self.neq, numstates) # sensitivities
+        p      = cs.vertcat([self.model.inputExpr(2), dphidx]) # parameters
+
+        # Symbolic function (from input model)
+        ode_rhs = self.model.outputExpr()[0]
+        f_tilde = self.T*ode_rhs/(2*np.pi)
+
+        # symbolic jacobians
+        jac_x = self.model.jac(cs.DAE_X, cs.DAE_X)   
+        sens_rhs = jac_x.mul(s)
+
+        quad = cs.SX.sym('q', self.neq, numstates)
+        for i in xrange(numstates):
+            quad[:,i] = 2*(s[:,i] - dphidx[i]*f_tilde)*(xd - self.avg)
+
+        shape = (self.neq*numstates, 1)
+
+        x = cs.vertcat([xd, s.reshape(shape)])
+        ode = cs.vertcat([ode_rhs, sens_rhs.reshape(shape)])
+        ffcn = cs.SXFunction(cs.daeIn(t=t, x=x, p=p),
+                             cs.daeOut(ode=ode, quad=quad))
+        return ffcn
+
+
+    def _sarc_single_time(self, time, seed):
+        """ Calculate the state amplitude response to an infinitesimal
+        perturbation in the direction of seed, at specified time. """
+
+        # Initialize model and sensitivity states
+        x0 = np.zeros(2*self.neq)
+        x0[:self.neq] = self.lc(time)
+        x0[self.neq:] = seed
+        
+        # Add dphi/dt from seed perturbation
+        param = np.zeros(self.np + 1)
+        param[:self.np] = self.param
+        param[-1] = self.sPRC_interp(time).dot(seed)
+
+        # Evaluate model
+        self.sarc_int.setInput(x0, cs.INTEGRATOR_X0)
+        self.sarc_int.setInput(param, cs.INTEGRATOR_P)
+        self.sarc_int.evaluate()
+        amp_change = self.sarc_int.output(cs.INTEGRATOR_QF).toArray()
+        self.sarc_int.reset()
+
+        amp_change *= (2*np.pi)/(self.T)
+
+        return amp_change
+
+
+    def _findARC_seed(self, seeds, res=100, trans=3): 
+
+        # Calculate necessary quantities
+        if not hasattr(self, 'avg'): self.average()
+        if not hasattr(self, 'sPRC'): self.find_prc(res)
+
+        # Set up quadrature integrator
+        self.sarc_int = cs.Integrator('cvodes',self._create_ARC_model())
+        self.sarc_int.setOption("abstol", self.intoptions['sensabstol'])
+        self.sarc_int.setOption("reltol", self.intoptions['sensreltol'])
+        self.sarc_int.setOption("max_num_steps",
+                             self.intoptions['sensmaxnumsteps'])
+        self.sarc_int.setOption("t0", 0)
+        self.sarc_int.setOption("tf", trans*self.T)
+        #self.sarc_int.setOption("numeric_jacobian", True)
+
+        self.sarc_int.init()
+
+        t_arc = np.linspace(0, self.yT, res)
+        arc = np.array([self._sarc_single_time(t, seed) for t, seed in
+                        zip(t_arc, seeds)]).squeeze()
+        return t_arc, arc
+
+    def findSARC(self, state, res=100, trans=3):
+        """ Find amplitude response curve from pertubation to state """
+        seed = np.zeros(self.neq)
+        seed[state] = 1.
+        return self._findARC_seed([seed]*res, res, trans)
+
+    def findPARC(self, param, res=100, trans=3, rel=False):
+        """ Find ARC from temporary perturbation to parameter value """
+        t_arc = np.linspace(0, self.T, res)
+        dfdp = self._phi_to_t(self.dfdp(self.lc(t_arc))[:,:,param])
+        t_arc, arc = self._findARC_seed(dfdp, res, trans)
+        if rel: arc *= self.param[param]/self.avg
+        return t_arc, arc
+
+    def findARC_whole(self, res=100, trans=3):
+        """ Calculate entire sARC matrix, which will be faster than
+        calcualting for each parameter """
+
+        # Calculate necessary quantities
+        if not hasattr(self, 'avg'): self.average()
+        if not hasattr(self, 'sPRC'): self.find_prc(res)
+
+        # Set up quadrature integrator
+        self.sarc_int = cs.Integrator('cvodes',
+            self._create_ARC_model(numstates=self.neq))
+        self.sarc_int.setOption("abstol", self.intoptions['sensabstol'])
+        self.sarc_int.setOption("reltol", self.intoptions['sensreltol'])
+        self.sarc_int.setOption("max_num_steps",
+                             self.intoptions['sensmaxnumsteps'])
+        self.sarc_int.setOption("t0", 0)
+        self.sarc_int.setOption("tf", trans*self.T)
+        #self.sarc_int.setOption("numeric_jacobian", True)
+        self.sarc_int.init()
+
+        self.arc_ts = np.linspace(0, self.T, res)
+        
+        amp_change = []
+        for t in self.arc_ts:
+            # Initialize model and sensitivity states
+            x0 = np.zeros(self.neq*(self.neq + 1))
+            x0[:self.neq] = self.lc(t)
+            x0[self.neq:] = np.eye(self.neq).flatten()
+            
+            # Add dphi/dt from seed perturbation
+            param = np.zeros(self.np + self.neq)
+            param[:self.np] = self.param
+            param[self.np:] = self.sPRC_interp(t)
+
+            # Evaluate model
+            self.sarc_int.setInput(x0, cs.INTEGRATOR_X0)
+            self.sarc_int.setInput(param, cs.INTEGRATOR_P)
+            self.sarc_int.evaluate()
+            out = self.sarc_int.output(cs.INTEGRATOR_QF).toArray()
+            # amp_change += [out]
+            amp_change += [out*2*np.pi/self.T]
+                                        
+
+        #[time, state_out, state_in]
+        self.sARC = np.array(amp_change)
+        dfdp = np.array([self.dfdp(self.lc(t)) for t in self.arc_ts])
+        self.pARC = np.array([self.sARC[i].dot(self._phi_to_t(dfdp[i]))
+                              for i in xrange(len(self.sARC))])
+
+        self.rel_pARC = (np.array(self.param) * self.pARC /
+                         np.atleast_2d(self.avg).T)        
         
     def _cos_components(self):
         """ return the phases and amplitudes associated with the first
@@ -704,7 +858,95 @@ class Oscillator(object):
         """ interpolate the selc.lc interpolation object using a time on
         (0,2*pi) """
         return self.lc(self._phi_to_t(phi%(2*np.pi)))
+        
+    def phase_of_point(self, point, error=False, tol=1E-3):
+        """ Finds the phase at which the distance from the point to the
+        limit cycle is minimized. phi=0 corresponds to the definition of
+        y0, returns the phase and the minimum distance to the limit
+        cycle """
 
+        point = np.asarray(point)
+        
+        #set up integrator so we only have to once...
+        intr = cs.Integrator('cvodes',self.model)
+        intr.setOption("abstol", self.intoptions['bvp_abstol'])
+        intr.setOption("reltol", self.intoptions['bvp_reltol'])
+        intr.setOption("tf", self.T)
+        intr.setOption("max_num_steps",
+                       self.intoptions['transmaxnumsteps'])
+        intr.setOption("disable_internal_warnings", True)
+        intr.init()
+        for i in xrange(100):
+            dist = cs.SX.sym("dist")
+            x = self.model.inputExpr(cs.DAE_X)
+            ode = self.model.outputExpr()[0]
+            dist_ode = cs.sumAll(2.*(x - point)*ode)
+
+            cat_x   = cs.vertcat([x, dist])
+            cat_ode = cs.vertcat([ode, dist_ode])
+
+            dist_model = cs.SXFunction(
+                cs.daeIn(t=self.model.inputExpr(cs.DAE_T), x=cat_x,
+                         p=self.model.inputExpr(cs.DAE_P)),
+                cs.daeOut(ode=cat_ode))
+
+            dist_model.setOption("name","distance model")
+
+            dist_0 = ((self.y0 - point)**2).sum()
+            cat_y0 = np.hstack([self.y0, dist_0])
+
+            roots_class = Oscillator(dist_model, self.param, cat_y0)
+            roots_class.intoptions = self.intoptions
+            #return roots_class
+            roots_class.solve_bvp()
+            roots_class.limit_cycle()
+            roots_class.roots()
+
+            phases = self._t_to_phi(roots_class.tmin[-1])
+            distances = roots_class.ymin[-1]
+            distance = np.min(distances)
+
+            if distance < tol: 
+                phase_ind = np.argmin(distances) # for multiple minima
+                return phases[phase_ind]#, roots_class
+
+            intr.setInput(point, cs.INTEGRATOR_X0)
+            intr.setInput(self.param, cs.INTEGRATOR_P)
+            intr.evaluate()
+            point = intr.output().toArray().flatten() #advance by one cycle
+
+        raise RuntimeError("Point failed to converge to limit cycle")
+    
+    def roots(self, res=500):
+        """
+        Mediocre reproduction of Peter's roots fcn. Returns full max/min
+        values and times for each state in the system. This is performed with
+        splines. Warning: splines can be messy near discontinuities or highly-
+        nonlinear regions.
+        """
+        if not self.lc:
+            self.limit_cycle()
+        tin = np.linspace(0, self.T, res)
+        yin = self.lc(tin)
+        
+        # get splines of der1 and der2 for finding roots
+        # make initial LC spline k so that we can find roots at all levels
+        sps = self.lc.splines
+        
+        sp4 = jha.MultivariatePeriodicSpline(tin, yin.T, period=self.T, k=4)
+        der1s = [spi.derivative(n=1) for spi in sp4.splines]
+        
+        sp5 = jha.MultivariatePeriodicSpline(tin, yin.T, period=self.T, k=5)
+        der2s = [spi.derivative(n=2) for spi in sp5.splines]
+
+        self.tmax = np.array([d1.roots()[der2s[i](d1.roots()) < 0] 
+                        for i,d1 in enumerate(der1s)])
+        self.ymax = np.array([spi(self.tmax[i]) for i,spi in enumerate(sps)])
+
+        self.tmin = np.array([d1.roots()[der2s[i](d1.roots()) > 0] 
+                        for i,d1 in enumerate(der1s)])
+        self.ymin = np.array([spi(self.tmin[i]) for i,spi in enumerate(sps)])
+        
 if __name__ == "__main__":
     
     from Models.tyson_model import model, param, EqCount

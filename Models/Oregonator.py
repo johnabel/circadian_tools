@@ -80,8 +80,8 @@ class oregonator_ssa(gillespy.Model):
     """
     def __init__(self, 
                  param=param, 
-                 volume = 0.1,
-                 timespan = np.linspace(0,10,10./period*48)):
+                 volume = 0.5,
+                 timespan = np.linspace(0, 15, 15./period*48)):
         """
         """
         gillespy.Model.__init__(self, name="oregonator", volume=volume)
@@ -152,13 +152,13 @@ class oregonator_ssa(gillespy.Model):
 if __name__ == "__main__":
 
     import circadiantoolbox as ctb
-
+    
     oreg = ctb.Oscillator(model(), param, y0in)
     dsol = oreg.int_odes(10,numsteps=1000)
-    #oreg.calc_y0()
-    #oreg.limit_cycle()
-    #oreg.first_order_sensitivity()
-    #oreg.find_prc()
+    oreg.calc_y0()
+    oreg.limit_cycle()
+    oreg.first_order_sensitivity()
+    oreg.find_prc()
     
     ssa = oregonator_ssa(param=param)
     trajectories = ssa.run(number_of_trajectories=1)

@@ -23,6 +23,7 @@ import collections
 
 from scoop import futures
 
+import DecayingSinusoid as ds
 import pdb
 
 
@@ -150,7 +151,7 @@ class network(object):
             self.mic[use_sph] = mic
         else: self.mic = {use_sph : mic}
 
-    def ipython_MIC(self,use_data='raw',myprofile='john',client=None):
+    def ipython_MIC(self,use_data='raw',myprofile='john',return_mic=True,client=None):
         """
         Parallel calculation of MIC for an array of trajectories. It calls 
         the function below it, ipython_mp, which is parallelizable.
@@ -199,25 +200,81 @@ class network(object):
         print end_time
         
         # fill in a connectivity matrix
-        mic = np.zeros([self.nodecount,self.nodecount])
-        for i in range(len(inds)):
-            mic[inds[i][0],inds[i][1]] = info[i]
-            mic[inds[i][1],inds[i][0]] = info[i]
+        if return_mic==True:
+            mic = np.zeros([self.nodecount,self.nodecount])
+            for i in range(len(inds)):
+                mic[inds[i][0],inds[i][1]] = info[i]
+                mic[inds[i][1],inds[i][0]] = info[i]
+            
+            np.fill_diagonal(mic,0)
+            if hasattr(self,'mic'):
+                self.mic[use_data] = mic
+            else: self.mic = {use_data : mic}
+        else: 
+            return info
         
-        np.fill_diagonal(mic,0)
-        if hasattr(self,'mic'):
-            self.mic[use_data] = mic
-        else: self.mic = {use_data : mic}
+    def ipython_MICpc(self,use_data='raw',myprofile='john',return_mic=True,client=None):
+        """
+        Parallel calculation of MIC for an array of trajectories. It calls 
+        the function below it, ipython_mp, which is parallelizable.
+        """
+        import ipyparallel as pll        
         
-    def scoop_mp(self,inds):
-        """
-        Function that is only called to parallelize the MIC calculation. This
-        function is parallelizable and only takes indexes as input.
-        """
-        [c1,c2] = inds
-        ts1 = self.data['mic'][:,c1]
-        ts2 = self.data['mic'][:,c2]
-        return [c1,c2,mp.minestats(ts1,ts2)['mic']]
+        # checks to make sure Client may be run
+        if client is None:
+            import ipyparallel as pll
+            try: client = pll.Client(profile=myprofile)
+            except IOError, e:
+                print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+                print e
+                return
+        else:
+            #client already set
+            print "client found"
+        
+        import time
+        start_time = time.time()
+        print client.ids
+        # index list setup
+        inds = list(itertools.combinations_with_replacement(
+                    range(self.nodecount),2))
+                    
+        # takes correct dataset to pass to MIC
+        self.data['mic']= self.data[use_data]
+        
+        # feed data correctly
+        feed_data = []
+        for i in inds:
+            # incredibly obnoxious to get into correct format
+            feed_data.append([self.data['mic'],i[0],i[1]])
+                                        # transform to get it to be veritcal
+        
+        self.feed_data_mic = feed_data
+        
+        #parallel component
+        dview = client[:] # use all nodes alotted
+        #include necessary imports for function
+        dview.execute('import minepy as mp')
+            
+        info = dview.map_sync(ipython_mp_pc,feed_data)
+        
+        end_time = time.time()-start_time
+        print end_time
+        
+        if return_mic==True:
+            # fill in a connectivity matrix
+            mic = np.zeros([self.nodecount,self.nodecount])
+            for i in range(len(inds)):
+                mic[inds[i][0],inds[i][1]] = info[i]
+                mic[inds[i][1],inds[i][0]] = info[i]
+            
+            np.fill_diagonal(mic,0)
+            if hasattr(self,'mic'):
+                self.mic[use_data] = mic
+            else: self.mic = {use_data : mic}
+        
+        else: 
+            return info
         
     def pearson_r2(self):
         pass
@@ -584,7 +641,7 @@ class network(object):
         self.dft_population_dict = return_dict
     
     def sc_dft(self,cells='all', window = 'hamming',
-               data = 'raw', remove_DC = True):
+               data = 'detrend_baseline', remove_DC = True, start_cut = 0, end_time = 168):
         """        
         Performs a discrete fourier transform on the single cell 
         bioluminescence. Uses a hamming window by default to scale data.
@@ -593,7 +650,7 @@ class network(object):
         """
         if cells == 'all':
             cells = np.arange(self.nodecount)
-        fdata = self.data[data][:,cells]
+        fdata = self.data[data][start_cut:end_time,cells]
         
         if window == 'hamming':
             fdata = ((fdata.T)*signal.hamming(len(fdata))).T
@@ -615,7 +672,7 @@ class network(object):
                         }
         self.dft_single_cell_dict = return_dict
     
-    def power_circ_bin(self, low_per = 18.0, high_per = 32.0):
+    def power_circ_bin(self, low_per = 16.0, high_per = 32.0):
         """
         Uses sc dft to identify the power in each cell's circadian bin.
         DC (frq = 0 component) should be removed.
@@ -684,7 +741,18 @@ class network(object):
         self.periodogram['periods'] = cell_pers
         self.periodogram['pgrams'] = pgrams
         self.periodogram['sigs'] = sigs
-    
+        
+    def amplitude_sinusoid(self, cells='all', data='raw'):
+        if cells == 'all':
+            cells = np.arange(self.nodecount)
+
+        amps = []
+        for cell in cells:
+            ampdata = self.data[data][:,cell]
+            decs = ds.DecayingSinusoid(np.arange(len(ampdata)),ampdata)
+            decs.run()
+            amps.append(decs.averaged_params['amplitude'].value)
+        self.amps = amps
 
     def find_peaktimes(self, data='raw', t='raw', tstart=0, tend=24, order=5, 
                        cells='all', spline = False):
@@ -1039,7 +1107,25 @@ def ipython_mp(data):
     trajs=data[0]
     loc0=data[1]
     loc1=data[2]
+    
     mic = mp.minestats(trajs[:,loc0],trajs[:,loc1])['mic']
+    return mic
+
+def ipython_mp_pc(data):
+    """
+    Function that is only called to parallelize the MIC calculation. This
+    function is parallelizable and only takes indexes as input.
+    """
+    trajs=data[0]
+    loc0=data[1]
+    loc1=data[2]
+    mic = []
+    shl = 13 #shl is shift length
+    for shift in range(shl):
+        mic.append(mp.minestats(trajs[shift:-shl+shift,loc0],trajs[:-shl,loc1])['mic'])
+    for shift in np.arange(1,shl):
+        mic.append(mp.minestats(trajs[shift:-shl+shift,loc1],trajs[:-shl,loc0])['mic'])
+    
     return mic
 
 def ROC(adj, infer, ints = 1000):
@@ -1331,7 +1417,7 @@ def net_resample_pc(data):
     g2 = nx.gnp_random_graph(n,p)
     try:
         # network is connected
-        return [nx.average_shortest_path_length(g2), nx.average_clustering(g2)]
+        return [nx.average_shortest_path_length(g2), nx.average_clustering(g2),1]
     except:
         #network is unconnected
         subgraphs = nx.connected_component_subgraphs(g2)
@@ -1342,7 +1428,7 @@ def net_resample_pc(data):
         path_length = nx.average_shortest_path_length(g) 
         clustering_coeff = nx.average_clustering(g)
 
-        return [path_length,clustering_coeff]
+        return [path_length,clustering_coeff,0]
 
 def ipp_resample_path_cluster(nxgraphs,net_names,its=10000,myprofile='john'):
     import ipyparallel as pll
@@ -1403,11 +1489,25 @@ def pnet_analysis(net,**kwargs):
     net.detrend(detrend='dwt',dwt_bin_desired=3)
     net.hilbert_transform(detrend='detrend_dwt',cells=net.rc)
     net.times_of_period(cells=net.rc,
-                    data = 'detrend_dwt')
+                    data = 'detrend_dwt', start_cut = 12, end_time = 120) #12-120 for fetAL
     # only makes sense for parallel computation
     return net
 
-def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days',**kwargs):
+def pnet_analysis_resync(net,**kwargs):
+    net.detrend(detrend='baseline')
+    net.ls_periodogram(data='detrend_baseline')#remove_dwt_trend=True)
+    net.ls_rhythmic_cells2(p=0.05)
+    net.detrend(detrend='dwt',dwt_bin_desired=3)
+    net.hilbert_transform(detrend='detrend_dwt',cells='all')
+    net.times_of_period(cells=net.rc,
+                    data = 'detrend_dwt', start_cut = 0, end_time = 168)
+    net.sc_dft(start_cut = 0, end_time = 168)
+    net.power_circ_bin()
+    # only makes sense for parallel computation
+    
+    return net
+
+def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days', **kwargs):
     import ipyparallel as pll
     try: client = pll.Client(profile=myprofile)
     except IOError, e:
@@ -1416,11 +1516,12 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days',**kwargs):
         return
     
     import time
+    print "PNET ANALYSIS SET UP FOR THE RESYNC EXPERIMENT"
     start_time = time.time()
     dview = client[:] # use all nodes alotted
     #include necessary imports for function
     dview.execute('import network_inference as ni; reload(ni)')
-    new_nets = dview.map_sync(pnet_analysis,all_nets)
+    new_nets = dview.map_sync(pnet_analysis_resync,all_nets)
     
     end_time = time.time()-start_time
     print end_time
@@ -1456,8 +1557,8 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days',**kwargs):
         
     if data=='antagonist':
         xpt_list = ['e15a','e15v']
-        e15a_scns = ['scn1','scn2','scn3','scn4','scn5']
-        e15v_scns = ['scn1','scn2','scn3','scn4']
+        e15a_scns = ['scn1','scn2','scn3']
+        e15v_scns = ['scn1','scn2','scn3']
         scns_list = [e15a_scns, e15v_scns]
         
         # reconstruct dictionaries from the form of the original dict
@@ -1476,6 +1577,19 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days',**kwargs):
             
             #add the day to the new_dict
             new_dict.update({day:day_dict})
+            
+    if data=='names':
+        names_list = ['scn1','scn2','scn3','scn4','scn5']
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+
+        for i,name in enumerate(names_list):
+            
+            new_dict.update({name:new_nets[i]})
+        
         
     return new_dict, new_nets
 
@@ -1783,18 +1897,6 @@ def psignificance(sig_data):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def ipp_net_sig(all_nets,ref_list, myprofile='john',**kwargs):
     import ipyparallel as pll
     try: client = pll.Client(profile=myprofile)
@@ -1823,63 +1925,29 @@ def ipp_net_sig(all_nets,ref_list, myprofile='john',**kwargs):
     return new_nets
 
 
+"""
 
 
 
 
-# FOR FUNCTIONAL NETWORK INFERENCE, WE CARE IF THERE IS A CORE and SHELL IN ND
-
-def radial_lognd_time_map(net, ref_cell = None):
-    
-    # either use ref location or ref cell
-    if ref_cell==None:
-        all_loc = np.array(net.locations.values())
-        ref_loc = np.array([(all_loc[:,0].max()+all_loc[:,0].min())/2, 
-                   (all_loc[:,1].max()+all_loc[:,1].min())/2])
-    elif len(ref_cell)==2:
-        ref_loc = ref_cell
-    else:
-        ref_loc = np.array(net.locations[ref_cell])
-    
-    distances = []
-    cellnums = []
-    lognd = []
-    
-    for i in range(net.nodecount):
-        
-        cell=i
-        # which cell we are doing this for
-        cellnums.append(i)
-        
-        # what is that distance
-        distances.append(np.linalg.norm(
-                    np.array(net.locations[cell])-ref_loc))
-        
-        lognd.append(np.max([np.log(net.nx_graph.degree()[i]+1),0]))
-
-
-    return [cellnums,distances,lognd]
 
 
 
-def net_significance(net_ref):
-    
-    net = net_ref[0]
-    ref = net_ref[1]
-    
-    # heavy lifting
-    cellnums,distances,lognds = radial_lognd_time_map(net,ref_cell=ref)
-    bin_centers,bin_means = bin_distance_ptime(distances,lognds,bin_size=15)
-    maxs,mins = resample_ptimes(distances,lognds, p=0.025, its = 10000,bin_size=15)
-    
-    net.connections_sig_dict = {'mins':mins,'maxs':maxs,'bin_centers':bin_centers,
-                             'bin_means':bin_means, 'sig_data':[cellnums,distances,lognds]
-                             }
-    return net
+
+NETWORK INFERENCE PAPER
 
 
 
-def ipp_simulate_adjacency_3st(adjacency, save_path, ensembles, myprofile='john'):
+
+
+
+
+"""
+
+
+# EXPLORATION SIMULATIONS
+
+def ipp_explore_sds(adjacency_list, save_path, unc_treatment=None, myprofile='john'):
     
     import ipyparallel as pll
     try: client = pll.Client(profile=myprofile)
@@ -1893,19 +1961,153 @@ def ipp_simulate_adjacency_3st(adjacency, save_path, ensembles, myprofile='john'
     dview = client[:] # use all nodes alotted
     
     #loop here
-    seeds = range(ensembles)
+    seeds = range(len(adjacency_list))
     
     sim_data = []
     for seed in seeds:
-        sim_data.append([seed,adjacency,save_path])
+        sim_data.append([seed,adjacency_list[seed],save_path])
     
-    np.save(save_path+'adjacency.npy',adjacency)
-    dview.map_sync(par_sim_3st,sim_data)
+    if unc_treatment=='weak':
+        dview.map_sync(par_exp_sdsweak,sim_data)
+    else:
+        dview.map_sync(par_exp_sds,sim_data)
 
     end_time = time.time()-start_time
     print end_time
 
-def par_sim_3st(sim_data):
+
+def par_exp_sds(sim_data):
+    from ExperimentalModels import SDS_network_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 0.05 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    new_net.resample(des=1,method='sum')
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['resample'])
+    np.save(path+model.modelversion+str(seed)+'_adj.npy',adj)
+
+def par_exp_sdsweak(sim_data):
+    from ExperimentalModels import SDS_weak_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 1 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['raw'])
+    np.save(path+model.modelversion+str(seed)+'_adj.npy',adj)
+
+
+
+def ipp_explore_3st(adjacency_list, save_path, unc_treatment=None, myprofile='john'):
+    
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    
+    #loop here
+    seeds = range(len(adjacency_list))
+    
+    sim_data = []
+    for seed in seeds:
+        sim_data.append([seed,adjacency_list[seed],save_path])
+    
+    if unc_treatment=='weak':
+        dview.map_sync(par_exp_3stweak,sim_data)
+    else:
+        dview.map_sync(par_exp_3st,sim_data)
+
+    end_time = time.time()-start_time
+    print end_time
+
+def par_exp_3st(sim_data):
     from ExperimentalModels import threest_network_resync_230 as model
     import stochkit_resources as stk
     import network_inference as ni
@@ -1954,36 +2156,10 @@ def par_sim_3st(sim_data):
     new_net = ni.network(ts_data,sph=0.05)
     new_net.resample(des=1,method='sum')
     np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['resample'])
+    np.save(path+model.modelversion+str(seed)+'_adj.npy',adj)
 
-
-def ipp_simulate_adjacency_SDS(adjacency, save_path, ensembles, myprofile='john'):
-    
-    import ipyparallel as pll
-    try: client = pll.Client(profile=myprofile)
-    except IOError, e:
-        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
-        print e
-        return
-    
-    import time
-    start_time = time.time()
-    dview = client[:] # use all nodes alotted
-    
-    #loop here
-    seeds = range(ensembles)
-    
-    sim_data = []
-    for seed in seeds:
-        sim_data.append([seed,adjacency,save_path])
-    
-    np.save(save_path+'adjacency.npy',adjacency)
-    dview.map_sync(par_sim_SDS,sim_data)
-
-    end_time = time.time()-start_time
-    print end_time
-
-def par_sim_SDS(sim_data):
-    from ExperimentalModels import SDS_network_resync_230 as model
+def par_exp_3stweak(sim_data):
+    from ExperimentalModels import threest_weak_resync_230 as model
     import stochkit_resources as stk
     import network_inference as ni
     
@@ -2000,7 +2176,7 @@ def par_sim_SDS(sim_data):
     # simulation times
     tfd = 24*(6) # days of desync
     tfr = 24*8 # days of resync
-    inc = 0.05 # increment
+    inc = 1 # increment
     
     # simulate the desync
     traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
@@ -2028,11 +2204,271 @@ def par_sim_SDS(sim_data):
         ts_data[:,i] = full_ts[:,1+model.EqCount*i]
     
     # resample
-    new_net = ni.network(ts_data,sph=0.05)
-    new_net.resample(des=1,method='sum')
-    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['resample'])
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['raw'])
+    np.save(path+model.modelversion+str(seed)+'_adj.npy',adj)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def ipp_simulate_adjacency_3st(adjacency, save_path, ensembles, myprofile='john', unc_treatment=None):
     
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
     
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    
+    #loop here
+    seeds = range(ensembles)
+    
+    sim_data = []
+    for seed in seeds:
+        sim_data.append([seed,adjacency,save_path])
+    
+    np.save(save_path+'adjacency.npy',adjacency)
+    if unc_treatment=='weak':
+        dview.map_sync(par_sim_3st_weak,sim_data)
+    else:
+        dview.map_sync(par_sim_3st,sim_data)
+
+    end_time = time.time()-start_time
+    print end_time
+
+def par_sim_3st(sim_data):
+    from ExperimentalModels import threest_network_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,  cellcount=len(adj))
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 1 # increment
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+    # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['raw'])
+
+
+def par_sim_3st_weak(sim_data):
+    from ExperimentalModels import threest_weak_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,  cellcount=len(adj))
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 1 # increment
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+    # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+model.modelversion+str(seed)+'.npy',new_net.data['raw'])
+
+def ipp_simulate_adjacency_sds(adjacency, save_path, ensembles, unc_treatment=None, myprofile='john'):
+    
+    import ipyparallel as pll
+    try: client = pll.Client(profile=myprofile)
+    except IOError, e:
+        print "Cannot run parallel calculation, no engines running. Currently using profile: "+myprofile+"."
+        print e
+        return
+    
+    import time
+    start_time = time.time()
+    dview = client[:] # use all nodes alotted
+    
+    #loop here
+    seeds = range(ensembles)
+    
+    sim_data = []
+    for seed in seeds:
+        sim_data.append([seed,adjacency,save_path])
+    
+    np.save(save_path+'sdsadjacency.npy',adjacency)
+    if unc_treatment=='weak':
+        dview.map_sync(par_sim_sds_weak,sim_data)
+    else:
+        dview.map_sync(par_sim_SDS,sim_data)
+            
+
+    end_time = time.time()-start_time
+    print end_time
+
+def par_sim_SDS(sim_data):
+    from ExperimentalModels import SDS_network_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 1 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+'sds230'+str(seed)+'.npy',new_net.data['raw'])
+    
+def par_sim_sds_weak(sim_data):
+    from ExperimentalModels import SDS_weak_resync_230 as model
+    import stochkit_resources as stk
+    import network_inference as ni
+    
+    seed = sim_data[0]
+    adj = sim_data[1]
+    path = sim_data[2]
+    
+    #set up the model to simulate the desync
+    desync_model,state_names,param_names = model.ssa_desync(model.ODEmodel(),
+                                                            model.y0in,
+                                                            model.param,
+                                                            cellcount=len(adj))
+    
+    # simulation times
+    tfd = 24*(6) # days of desync
+    tfr = 24*8 # days of resync
+    inc = 1 # increment
+    
+    # simulate the desync
+    traj_desync = stk.stochkit(desync_model,job_id='sim1'+str(seed),t=tfd,
+                           number_of_trajectories=1,increment=inc,
+                           seed=seed)
+   
+   # set up the resync
+    resync_model,state_names,param_names = model.ssa_resync(model.ODEmodel(), 
+                                                           traj_desync[0][-1,1:],
+                                                        model.param,
+                                                        len(adj),
+                                                        adj)
+    
+    # simulate the resync
+    traj_resync = stk.stochkit(resync_model,job_id='sim2'+str(seed),t=tfr,
+                               number_of_trajectories=1,increment=inc,
+                               seed=seed)
+        
+    traj_resync[0][:,0] = traj_resync[0][:,0] + traj_desync[0][-1,0] #fix time
+    full_ts = np.append(traj_desync[0],traj_resync[0],axis=0)
+    
+    #process to just get per trajectories
+    ts_data = np.zeros([np.size(full_ts[:,1]),len(adj)])
+    for i in range(len(adj)):
+        ts_data[:,i] = full_ts[:,1+model.EqCount*i]
+    
+    # resample
+    new_net = ni.network(ts_data,sph=1)
+    np.save(path+'sds230'+str(seed)+'.npy',new_net.data['raw'])    
     
     
 

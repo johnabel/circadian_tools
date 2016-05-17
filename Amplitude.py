@@ -1,3 +1,5 @@
+from __future__ import division
+
 import numpy as np
 import casadi as cs
 import scipy.optimize as opt
@@ -62,10 +64,10 @@ class Amplitude(Oscillator):
 
         self.arcsim.setInput(pulse['x0'], cs.INTEGRATOR_X0)
         self.arcsim.setInput(list(self.param) +
-                             [self.y0[-1]*trans_duration],
+                             [self.T*trans_duration],
                              cs.INTEGRATOR_P)
         self.arcsim.evaluate()
-        trajectory = self.arcsim.output().toArray()
+        trajectory = self.arcsim.output().toArray().T
 
         yend = trajectory[-5:] # Take the last 5 points
         phi_end = (self.arc_traj_ts[-1] + pulse['phi'])%(2*np.pi)
@@ -81,6 +83,7 @@ class Amplitude(Oscillator):
         phi_guess = phi_vals[np.array([resy(phi) for phi in
                                        phi_vals]).argmin()]
         p_min = opt.fmin(resy, phi_guess, disp=0)[0]%(2*np.pi)
+        #pdb.set_trace()
         assert resy(p_min)/self.avg.sum() < 1E-3, "transient not converged"
 
 
@@ -133,9 +136,8 @@ class Amplitude(Oscillator):
                                    [self._phi_to_t(pulse_duration)],
                                    cs.INTEGRATOR_P)
             self.pulsesim.evaluate()
-            pulse_trajectory = np.array(self.pulsesim.output())
+            pulse_trajectory = np.array(self.pulsesim.output()).T
             x0 = pulse_trajectory[-1]
-            
             pulse = {
                 'type' : 'param',
                 'x0' : x0,
@@ -298,7 +300,7 @@ class Amplitude(Oscillator):
 
         # Find after-pulse values
         after = ts >= 0
-        traj_out = np.zeros((len(ts), self.NEQ))
+        traj_out = np.zeros((len(ts), self.neq))
 
         # Calculate the steady-state trajectory after the pulse (only
         # valid after pulse)
@@ -732,31 +734,31 @@ class cyl_interp(object):
 if __name__ == "__main__":
 
     # from CommonFiles.Models.degmodelFinal import model, param
-    from CommonFiles.Models.leloup16model import model, param
-    # from CommonFiles.Models.tyson2statemodel import model, param
+    #from Models.leloup16model import model, param
+    from Models.tyson_model import model, param
     import matplotlib.pylab as plt
-    from CommonFiles.PlotOptions import (PlotOptions, format_2pi_axis,
+    from PlotOptions import (PlotOptions, format_2pi_axis,
                                          layout_pad)
 
     PlotOptions(uselatex=True)
 
     test = Amplitude(model(), param)
-    # state_pulse_creator = test._s_pulse_creator(1, 0.5)
-    param = test.pdict['vsP']
-    amount = 0.10*param[param]
-    duration = np.pi/8
-    state_pulse_creator = test._p_pulse_creator(param, amount, duration)
-    test.calc_pulse_responses(state_pulse_creator, trans_duration=3)
+    state_pulse_creator = test._s_pulse_creator(1, 0.5)
+    #parind = test.pdict['vsP']
+    #amount = 0.10*param[parind]
+    #duration = np.pi/8
+    #state_pulse_creator = test._p_pulse_creator(param, amount, duration)
+    test.calc_pulse_responses(state_pulse_creator, trans_duration=4)
 
     # # Fig 1 : Test single cell PRC and ARC
-    # fig, axmatrix = plt.subplots(nrows=2, ncols=1, sharex=True)
-    # axmatrix[0].plot(test.phis, test.prc_single_cell)
-    # axmatrix[0].set_title('Single Cell PRC')
-    # axmatrix[1].plot(test.phis, test.arc_single_cell[:,0])
-    # axmatrix[1].set_title('Single Cell ARC')
-    # plot_grey_zero(axmatrix[0])
-    # plot_grey_zero(axmatrix[1])
-    # format_2pi_axis(axmatrix[1])
+    fig, axmatrix = plt.subplots(nrows=2, ncols=1, sharex=True)
+    axmatrix[0].plot(test.phis, test.prc_single_cell)
+    axmatrix[0].set_title('Single Cell PRC')
+    axmatrix[1].plot(test.phis, test.arc_single_cell[:,1])
+    axmatrix[1].set_title('Single Cell ARC')
+    #plot_grey_zero(axmatrix[0])
+    #plot_grey_zero(axmatrix[1])
+    format_2pi_axis(axmatrix[1])
 
 
     period = 2*np.pi
