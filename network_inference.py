@@ -739,6 +739,7 @@ class network(object):
         self.periodogram = {}
         self.periodogram['cells'] = cells
         self.periodogram['periods'] = cell_pers
+        self.periodogram['cell_data'] = cell_data
         self.periodogram['pgrams'] = pgrams
         self.periodogram['sigs'] = sigs
         
@@ -1483,10 +1484,11 @@ def ipp_client_setup(myprofile='john'):
 # generally run after the setup functions I defined elsewhere
 
 
-def pnet_analysis(net,**kwargs):
+def pnet_analysis_fetal(net,**kwargs):
     net.ls_periodogram(remove_dwt_trend=True)
     net.ls_rhythmic_cells2(p=0.05)
     net.detrend(detrend='dwt',dwt_bin_desired=3)
+    net.detrend(detrend='baseline')
     net.hilbert_transform(detrend='detrend_dwt',cells=net.rc)
     net.times_of_period(cells=net.rc,
                     data = 'detrend_dwt', start_cut = 12, end_time = 120) #12-120 for fetAL
@@ -1494,6 +1496,7 @@ def pnet_analysis(net,**kwargs):
     return net
 
 def pnet_analysis_resync(net,**kwargs):
+    # for the ttx resync
     net.detrend(detrend='baseline')
     net.ls_periodogram(data='detrend_baseline')#remove_dwt_trend=True)
     net.ls_rhythmic_cells2(p=0.05)
@@ -1516,12 +1519,12 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days', **kwargs)
         return
     
     import time
-    print "PNET ANALYSIS SET UP FOR THE RESYNC EXPERIMENT"
+    print "warning: PNET ANALYSIS SET UP FOR THE FETAL EXPERIMENT"
     start_time = time.time()
     dview = client[:] # use all nodes alotted
     #include necessary imports for function
     dview.execute('import network_inference as ni; reload(ni)')
-    new_nets = dview.map_sync(pnet_analysis_resync,all_nets)
+    new_nets = dview.map_sync(pnet_analysis_fetal,all_nets)
     
     end_time = time.time()-start_time
     print end_time
@@ -1554,12 +1557,88 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days', **kwargs)
             
             #add the day to the new_dict
             new_dict.update({day:day_dict})
+    
+    if data=='adult_threecond':
+        xpt_list = ['basal', 'antagonist', 'wash']
+    
+        basal_scns = ['scn1']
+        ant_scns = ['scn1']
+        wash_scns = ['scn1']
+        scns_list = [basal_scns, ant_scns, wash_scns]
         
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(xpt_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+    
+    if data=='gz_with_split':
+        xpt_list = ['gza', 'gzb','gz_wash']
+        
+        gza_scns = ['scn1','scn2','scn3']
+        gzb_scns = ['scn1','scn2','scn3']
+        gz_wash_scns = ['scn1','scn2']
+        scns_list = [gza_scns, gzb_scns, gz_wash_scns]
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(xpt_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+            
     if data=='antagonist':
-        xpt_list = ['e15a','e15v']
-        e15a_scns = ['scn1','scn2','scn3']
-        e15v_scns = ['scn1','scn2','scn3']
-        scns_list = [e15a_scns, e15v_scns]
+        xpt_list = ['e15', 'vip_ant', 'gz','gz_wash']
+        e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
+        vip_ant_scns = ['scn1','scn2']
+        gz_scns = ['scn1','scn2','scn3']
+        gz_wash_scns = ['scn1','scn2']
+        scns_list = [e15_scns, vip_ant_scns, gz_scns, gz_wash_scns]
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(xpt_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+    
+    if data=='threebasal_fourblockers':
+        xpt_list = ['basal', 'blockers','wash']
+        basal_scns = ['scn1','scn2']
+        blockers_scns = ['scn1','scn2']
+        wash_scns = ['scn1','scn2']
+
+        scns_list = [basal_scns, blockers_scns, wash_scns]
         
         # reconstruct dictionaries from the form of the original dict
         new_dict = collections.OrderedDict()

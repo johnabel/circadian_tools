@@ -40,34 +40,34 @@ def ODEmodel():
     #==================================================================
     #State variable definitions
     #==================================================================
-    M    = cs.ssym("M")
-    Pc   = cs.ssym("Pc")
-    Pn   = cs.ssym("Pn")
+    M    = cs.SX.sym("M")
+    Pc   = cs.SX.sym("Pc")
+    Pn   = cs.SX.sym("Pn")
     
     #for Casadi
     y = cs.vertcat([M, Pc, Pn])
     
     # Time Variable
-    t = cs.ssym("t")
+    t = cs.SX.sym("t")
     
     
     #===================================================================
     #Parameter definitions
     #===================================================================
     
-    vs0 = cs.ssym('vs0')
-    light = cs.ssym('light')
-    alocal = cs.ssym('alocal')
-    couplingStrength = cs.ssym('couplingStrength')
-    n = cs.ssym('n')
-    vm = cs.ssym('vm')
-    k1 = cs.ssym('k1')
-    km = cs.ssym('km')
-    ks = cs.ssym('ks')
-    vd = cs.ssym('vd')
-    kd = cs.ssym('kd')
-    k1_ = cs.ssym('k1_')
-    k2_ = cs.ssym('k2_')    
+    vs0 = cs.SX.sym('vs0')
+    light = cs.SX.sym('light')
+    alocal = cs.SX.sym('alocal')
+    couplingStrength = cs.SX.sym('couplingStrength')
+    n = cs.SX.sym('n')
+    vm = cs.SX.sym('vm')
+    k1 = cs.SX.sym('k1')
+    km = cs.SX.sym('km')
+    ks = cs.SX.sym('ks')
+    vd = cs.SX.sym('vd')
+    kd = cs.SX.sym('kd')
+    k1_ = cs.SX.sym('k1_')
+    k2_ = cs.SX.sym('k2_')    
 
     paramset = cs.vertcat([vs0, light, alocal, couplingStrength,
                            n,   vm,    k1,     km, 
@@ -323,12 +323,13 @@ if __name__=='__main__':
     
     print param
     
-    ODEsolC = ctb.CircEval(ODEmodel(), param, y0in)
-    sol = ODEsolC.intODEs_sim(y0in,100)
+    ODEsolC = ctb.Oscillator(ODEmodel(), np.asarray(param), y0in)
+    sol = ODEsolC.int_odes(y0in,100)
     tsol = ODEsolC.ts
     plt.plot(tsol,sol)
     plt.show()
     
+    pdb.set_trace()
     tf=10
     inc = 0.05
     cellcount=3

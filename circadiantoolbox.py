@@ -540,7 +540,7 @@ class Oscillator(object):
         # are inside unit circle
         eigs = np.linalg.eigvals(monodromy)
         self.floquet_multipliers = np.abs(eigs)
-        self.floquet_multipliers.sort()
+        #self.floquet_multipliers.sort()
         idx = (np.abs(self.floquet_multipliers - 1.0)).argmin()
         f = self.floquet_multipliers.tolist()
         f.pop(idx)
@@ -550,9 +550,8 @@ class Oscillator(object):
     def first_order_sensitivity(self):
         """
         Function to calculate the first order period sensitivity
-        matricies using the direct method. See Wilkins et. al. Only
+        matricies using the direct method. See Wilkins et al. 2009. Only
         calculates initial conditions and period sensitivities.
-        Functions for amplitude sensitivitys remain in sensitivityfns
         """
 
         self.check_monodromy()
@@ -893,6 +892,9 @@ class Oscillator(object):
             dist_model.setOption("name","distance model")
 
             dist_0 = ((self.y0 - point)**2).sum()
+            if dist_0 < tol:
+                # catch the case where we start at 0
+                return 0.
             cat_y0 = np.hstack([self.y0, dist_0])
 
             roots_class = Oscillator(dist_model, self.param, cat_y0)
@@ -946,7 +948,8 @@ class Oscillator(object):
         self.tmin = np.array([d1.roots()[der2s[i](d1.roots()) > 0] 
                         for i,d1 in enumerate(der1s)])
         self.ymin = np.array([spi(self.tmin[i]) for i,spi in enumerate(sps)])
-        
+
+
 if __name__ == "__main__":
     
     from Models.tyson_model import model, param, EqCount

@@ -54,7 +54,6 @@ def model():
     # Time
     t = cs.SX.sym("t")
 
-
     # ODES
     ode = [[]]*EqCount
     ode[0] = c1x1*Y2 - c2*Y1*Y2 + c3x2*Y1 - c4*Y1**2

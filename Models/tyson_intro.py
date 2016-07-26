@@ -30,7 +30,6 @@ def tyson_model(ys,t0,param):
     #assign state values to names
     [y1, y2] = ys
     
-    
     #set up the set of ODEs
     dysdt = np.zeros([2])
     dysdt[0] = k1*(Kd**P)/((Kd**P) + (y2**P)) - kdx*y1
