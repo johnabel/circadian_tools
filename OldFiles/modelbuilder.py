@@ -3,6 +3,8 @@
 Created on Sat Apr 19 16:05:55 2014
 
 @author: john
+
+This is an old file which is used to run some of the archival models from when I first started. It should NOT have been set up like this, but alas, I didn't know any better.
 """
 import stochkit_resources as stk
 import pdb
