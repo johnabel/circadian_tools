@@ -1,5 +1,8 @@
 .py[cod]
 
+# files in use
+*.*~
+
 # VIM swap files
 *.sw[op]
 
