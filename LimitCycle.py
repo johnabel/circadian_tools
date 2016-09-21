@@ -15,7 +15,7 @@ import numpy as np
 import casadi as cs
 import pylab as pl
 import matplotlib.pyplot as plt
-import jha_utilities as jha
+import Utilities as jha
 import pdb
 from scipy import signal
 from scipy.interpolate import splrep, splev, UnivariateSpline

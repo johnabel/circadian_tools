@@ -60,7 +60,7 @@ class network(object):
         
         if (t is None and sph is not None):
             # defining t from sph
-            t = np.arange(0,sph*len(data),sph).astype(float)
+            t = np.arange(0,1/sph*len(data),1/sph).astype(float)
             self.t = {'raw': t}
 
         
@@ -101,13 +101,13 @@ class network(object):
                 sph = self.sph['raw']
             self.sph['resample'] = des
             #data_pre_fix = np.copy(self.data)
-            data_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),
+            data_resample = np.zeros([np.floor(des/sph*len(self.data['raw'])),
                                     self.nodecount])
-            t_resample = np.zeros([np.floor(sph*len(self.data['raw'])/des),1])
+            t_resample = np.zeros([np.floor(des/sph*len(self.data['raw'])),1])
             for i in range(len(data_resample)):
                 data_resample[i,:] = np.sum(self.data['raw'][
-                        int(i*des/sph):int((1+i)*des/sph),:],axis=0)
-                t_resample[i] = self.t['raw'][int((i)*des/sph)]+sph
+                        int(i*sph/des):int((1+i)*sph/des),:],axis=0)
+                t_resample[i] = self.t['raw'][int(i*sph/des)]
                 
             self.data['resample'] = data_resample
             self.t['resample'] = t_resample
@@ -1639,6 +1639,31 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days', **kwargs)
         wash_scns = ['scn1','scn2']
 
         scns_list = [basal_scns, blockers_scns, wash_scns]
+        
+        # reconstruct dictionaries from the form of the original dict
+        new_dict = collections.OrderedDict()
+        net_counter = 0 #counts to add nets into the new_dict from new_nets 
+        
+        for i, day in enumerate(xpt_list):
+            
+            # new dictionary for each day
+            day_dict = collections.OrderedDict()
+
+            # add elements for each SCN
+            for scn in scns_list[i]:
+                day_dict.update({scn:new_nets[net_counter]})
+                net_counter+=1
+            
+            #add the day to the new_dict
+            new_dict.update({day:day_dict})
+    
+    if data=='08092016_gz_basal':
+        xpt_list = ['basal', 'gz','wash']
+        basal_scns = ['scn1','scn3']
+        gz_scns = ['scn1','scn3']
+        wash_scns = ['scn1','scn3']
+
+        scns_list = [basal_scns, gz_scns, wash_scns]
         
         # reconstruct dictionaries from the form of the original dict
         new_dict = collections.OrderedDict()
