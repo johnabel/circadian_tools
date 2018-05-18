@@ -9,8 +9,8 @@ from scipy.special import erf
 
 from scipy.interpolate import UnivariateSpline
 
-from circadiantoolbox import Oscillator
-from jha_utilities import (fnlist, #plot_grey_zero,
+from LimitCycle import Oscillator
+from Utilities import (fnlist, #plot_grey_zero,
                                    PeriodicSpline,
                                    ComplexPeriodicSpline, p_integrate,
                                    ptc_from_prc, RootFindingSpline)
@@ -747,7 +747,7 @@ if __name__ == "__main__":
     #parind = test.pdict['vsP']
     #amount = 0.10*param[parind]
     #duration = np.pi/8
-    #state_pulse_creator = test._p_pulse_creator(param, amount, duration)
+    state_pulse_creator = test._p_pulse_creator(param, amount, duration)
     test.calc_pulse_responses(state_pulse_creator, trans_duration=4)
 
     # # Fig 1 : Test single cell PRC and ARC
