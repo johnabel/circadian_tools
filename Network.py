@@ -29,7 +29,7 @@ import pdb
 
 
 
-class network(object):
+class Network(object):
     """
     Class to analyze time series data and infer network connections.    
     JH Abel
@@ -386,7 +386,7 @@ class network(object):
         # make sure it is detrended
         try: hil_data = self.data[detrend][:,cells]
         except: 
-            print "Constant detrend being used in Helbert transform."
+            print "Constant detrend being used in Hilbert transform."
             self.detrend()
             hil_data = self.data['detrend_cons'][:,cells]
         
@@ -448,7 +448,7 @@ class network(object):
         self.mean_phase = mean_phase
         
     def times_of_period(self,data='detrend_dwt', cells = 'all',
-                     interpolating_time_steps = 10000, start_cut = 12, end_time = 120):
+                     interpolating_time_steps = 10000, start_cut = 24, end_cut=24):
         """ returns period times as lists for each individual cell in the 
         list of cells. does so by interpolating a series of data (for example,
         the dwt detrended data) 
@@ -461,7 +461,7 @@ class network(object):
         """
         
         #make a dict of splines
-        end_time = np.min([end_time, np.max(self.t['raw'])])
+        end_time = np.max(self.t['raw'])-end_cut
         
         try: splines_dict = np.array(self.spline_dict[data].values())
         except: 
@@ -713,12 +713,12 @@ class network(object):
             res = (period_high-period_low)*10
         
         # select cell traces
-        if cells == 'all':
+        if cells is 'all':
             cells = np.arange(self.nodecount)
         lsdata = self.data[data][:,cells]
         
-        pgrams = np.zeros([res,cells.size])        
-        sigs = np.zeros([res,cells.size])
+        pgrams = np.zeros([int(res),int(cells.size)])        
+        sigs = np.zeros([int(res),int(cells.size)])
         
         for i in range(len(cells)):
             cell_data = lsdata[:,i]
@@ -859,8 +859,9 @@ class network(object):
         diffcount = [] #used to weight means of cells to get scn
         for i in xrange(len(self.rc)):
             diff_pers = np.diff(self.periods_list[i])
-            mean_per_diff.append(np.mean(np.abs(diff_pers)))
-            diffcount.append(len(diff_pers))
+            if len(diff_pers>0):
+                mean_per_diff.append(np.mean(np.abs(diff_pers)))
+                diffcount.append(len(diff_pers))
 
         self.cell_cycle_variability = mean_per_diff
         self.mean_cycle_variability = np.sum(np.multiply(mean_per_diff,diffcount))/np.sum(diffcount)
@@ -997,14 +998,14 @@ class network(object):
         for ci in xrange(self.nodecount):
             # all ROI receive a value for if they are not rhythmic
             #center also here
-            map[self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2,
-                self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2] = -0.5
+            map[int(self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2),
+                int(self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2)] = -0.5
 
         if len(heats)>0:          
             for hi in xrange(len(cells)):
                 ci = cells[hi]
-                map[self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2,
-                    self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2] =\
+                map[int(self.locations[ci][0]-min_x - (max_x-min_x)/2 + greatest_diff/2),
+                    int(self.locations[ci][1]-min_y - (max_y-min_y)/2 + greatest_diff/2)] =\
                                 heats[hi]
         
         
@@ -1491,7 +1492,9 @@ def pnet_analysis_fetal(net,**kwargs):
     net.detrend(detrend='baseline')
     net.hilbert_transform(detrend='detrend_dwt',cells=net.rc)
     net.times_of_period(cells=net.rc,
-                    data = 'detrend_dwt', start_cut = 12, end_time = 120) #12-120 for fetAL
+                    data = 'detrend_dwt', start_cut = 24, end_cut=24)
+    if len(net.rc>5):
+        net.kuramoto_param(cells=net.rc)
     # only makes sense for parallel computation
     return net
 
@@ -1558,112 +1561,18 @@ def ipp_net_analysis(all_dict, all_nets, myprofile='john',data='days', **kwargs)
             #add the day to the new_dict
             new_dict.update({day:day_dict})
     
-    if data=='adult_threecond':
-        xpt_list = ['basal', 'antagonist', 'wash']
-    
-        basal_scns = ['scn1']
-        ant_scns = ['scn1']
-        wash_scns = ['scn1']
-        scns_list = [basal_scns, ant_scns, wash_scns]
+    if data=='ant':
+        xpt_list = ['e15','veh', 'gabazine', 'gabmec','ttx','vipant','mother']
         
-        # reconstruct dictionaries from the form of the original dict
-        new_dict = collections.OrderedDict()
-        net_counter = 0 #counts to add nets into the new_dict from new_nets 
-        
-        for i, day in enumerate(xpt_list):
-            
-            # new dictionary for each day
-            day_dict = collections.OrderedDict()
-
-            # add elements for each SCN
-            for scn in scns_list[i]:
-                day_dict.update({scn:new_nets[net_counter]})
-                net_counter+=1
-            
-            #add the day to the new_dict
-            new_dict.update({day:day_dict})
-    
-    if data=='gz_with_split':
-        xpt_list = ['gza', 'gzb','gz_wash']
-        
-        gza_scns = ['scn1','scn2','scn3']
-        gzb_scns = ['scn1','scn2','scn3']
-        gz_wash_scns = ['scn1','scn2']
-        scns_list = [gza_scns, gzb_scns, gz_wash_scns]
-        # reconstruct dictionaries from the form of the original dict
-        new_dict = collections.OrderedDict()
-        net_counter = 0 #counts to add nets into the new_dict from new_nets 
-        
-        for i, day in enumerate(xpt_list):
-            
-            # new dictionary for each day
-            day_dict = collections.OrderedDict()
-
-            # add elements for each SCN
-            for scn in scns_list[i]:
-                day_dict.update({scn:new_nets[net_counter]})
-                net_counter+=1
-            
-            #add the day to the new_dict
-            new_dict.update({day:day_dict})
-            
-    if data=='antagonist':
-        xpt_list = ['e15', 'vip_ant', 'gz','gz_wash']
         e15_scns = ['scn1','scn2','scn3','scn4','scn5','scn6','scn7','scn8','scn9']
-        vip_ant_scns = ['scn1','scn2']
-        gz_scns = ['scn1','scn2','scn3']
-        gz_wash_scns = ['scn1','scn2']
-        scns_list = [e15_scns, vip_ant_scns, gz_scns, gz_wash_scns]
-        
-        # reconstruct dictionaries from the form of the original dict
-        new_dict = collections.OrderedDict()
-        net_counter = 0 #counts to add nets into the new_dict from new_nets 
-        
-        for i, day in enumerate(xpt_list):
-            
-            # new dictionary for each day
-            day_dict = collections.OrderedDict()
-
-            # add elements for each SCN
-            for scn in scns_list[i]:
-                day_dict.update({scn:new_nets[net_counter]})
-                net_counter+=1
-            
-            #add the day to the new_dict
-            new_dict.update({day:day_dict})
-    
-    if data=='threebasal_fourblockers':
-        xpt_list = ['basal', 'blockers','wash']
-        basal_scns = ['scn1','scn2']
-        blockers_scns = ['scn1','scn2']
-        wash_scns = ['scn1','scn2']
-
-        scns_list = [basal_scns, blockers_scns, wash_scns]
-        
-        # reconstruct dictionaries from the form of the original dict
-        new_dict = collections.OrderedDict()
-        net_counter = 0 #counts to add nets into the new_dict from new_nets 
-        
-        for i, day in enumerate(xpt_list):
-            
-            # new dictionary for each day
-            day_dict = collections.OrderedDict()
-
-            # add elements for each SCN
-            for scn in scns_list[i]:
-                day_dict.update({scn:new_nets[net_counter]})
-                net_counter+=1
-            
-            #add the day to the new_dict
-            new_dict.update({day:day_dict})
-    
-    if data=='08092016_gz_basal':
-        xpt_list = ['basal', 'gz','wash']
-        basal_scns = ['scn1','scn3']
-        gz_scns = ['scn1','scn3']
-        wash_scns = ['scn1','scn3']
-
-        scns_list = [basal_scns, gz_scns, wash_scns]
+        veh_scns      = ['scn1','scn2']
+        gabazine_scns = ['scn1','scn2','scn3']
+        gabmec_scns   = ['scn1','scn2','scn3','scn4']
+        ttx_scns      = ['scn1','scn2','scn3']
+        vipant_scns   = ['scn1','scn2','scn3','scn4']
+        mother_scns   =['scn1']
+        scns_list = [e15_scns, veh_scns, gabazine_scns, gabmec_scns, ttx_scns,
+                     vipant_scns, mother_scns]
         
         # reconstruct dictionaries from the form of the original dict
         new_dict = collections.OrderedDict()

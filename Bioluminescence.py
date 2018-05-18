@@ -578,6 +578,7 @@ def continuous_wavelet_transform(x, y, shortestperiod=20,
 
     cwt_abs = np.abs(wt)
     cwt_scale = cwt_abs/cwt_abs.sum(0)
+    cwt_relamp = cwt_abs/np.max(cwt_abs)
     cwt_angle = np.angle(wt)
 
     max_inds = cwt_abs.argmax(0)
@@ -589,6 +590,7 @@ def continuous_wavelet_transform(x, y, shortestperiod=20,
     phase = cwt_angle.flat[wt_max_inds]
     amplitude = cwt_abs.flat[wt_max_inds]
     
+    
     return_dict = {
         'x'         : x,
         'tau'       : tau,
@@ -596,6 +598,7 @@ def continuous_wavelet_transform(x, y, shortestperiod=20,
         'cwt_abs'   : cwt_abs,
         'cwt_scale' : cwt_scale,
         'cwt_angle' : cwt_angle,
+        'cwt_relamp': cwt_relamp,
         'period'    : period,
         'phase'     : phase,
         'amplitude' : amplitude,
@@ -891,7 +894,8 @@ def dwt_breakdown(x, y, wavelet='dmey', nbins=np.inf, mode='sym'):
     lenx = len(x)
 
     # Restrict to the maximum allowable number of bins
-    if lenx < 2**nbins: nbins = int(np.floor(np.log(len(x))/np.log(2)))
+    if lenx < 2**nbins: 
+        nbins = np.min([int(np.floor(np.log(len(x))/np.log(2))), 8])
 
     dx = x[1] - x[0]
     period_bins = [(2**j*dx, 2**(j+1)*dx) for j in xrange(1,nbins+1)]
